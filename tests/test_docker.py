@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 MOCK_CONTAINER = MagicMock()
 MOCK_CONTAINER.id = "abc123def456" * 3
-MOCK_CONTAINER.name = "cpa-agent-abc123"
+MOCK_CONTAINER.name = "rv-agent-abc123"
 MOCK_CONTAINER.status = "running"
-MOCK_CONTAINER.labels = {"cpa.session_id": "test-session-id", "cpa.repo": "u/r", "cpa.managed": "true"}
+MOCK_CONTAINER.labels = {"rv.session_id": "test-session-id", "rv.repo": "u/r", "rv.managed": "true"}
 
 
 def _make_dm():

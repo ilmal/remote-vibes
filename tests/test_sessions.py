@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 MOCK_CONTAINER_INFO = {
     "container_id": "abc123def456" * 3,
-    "container_name": "cpa-agent-abc123",
-    "network_name": "cpa-net-abc123",
+    "container_name": "rv-agent-abc123",
+    "network_name": "rv-net-abc123",
     "code_server_port": 9000,
     "agent_api_port": 9001,
 }

@@ -28,7 +28,7 @@ async def test_chat_stream_running_session(mock_dm_factory, mock_agent_cls, auth
     # Mock docker
     mock_dm = MagicMock()
     mock_dm.start_agent_container = AsyncMock(return_value={
-        "container_id": "cid123", "container_name": "cpa-agent-test",
+        "container_id": "cid123", "container_name": "rv-agent-test",
         "network_name": "net-test", "code_server_port": 9000, "agent_api_port": 9001,
     })
     mock_dm_factory.return_value = mock_dm
@@ -72,7 +72,7 @@ async def test_create_pr_endpoint(mock_dm_factory, mock_agent_cls, auth_client: 
 
     mock_dm = MagicMock()
     mock_dm.start_agent_container = AsyncMock(return_value={
-        "container_id": "cid456", "container_name": "cpa-agent-pr",
+        "container_id": "cid456", "container_name": "rv-agent-pr",
         "network_name": "net-pr", "code_server_port": 9010, "agent_api_port": 9011,
     })
     mock_dm_factory.return_value = mock_dm

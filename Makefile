@@ -11,7 +11,7 @@ down: ## Stop all services
 
 build: ## Build images
 	docker compose build
-	docker build -f Dockerfile.agent -t cpa_agent:latest .
+	docker build -f Dockerfile.agent -t rv_agent:latest .
 
 migrate: ## Run Alembic migrations
 	docker compose exec main-app alembic upgrade head

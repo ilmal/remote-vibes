@@ -1,9 +1,8 @@
-version: "3.9"
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: cpa_postgres
+    container_name: rv_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -22,7 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: cpa_redis
+    container_name: rv_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_change_me}
     volumes:
@@ -39,7 +38,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.main
-    container_name: cpa_main
+    container_name: rv_main
     restart: unless-stopped
     env_file: .env
     environment:
@@ -78,4 +77,4 @@ volumes:
 networks:
   main:
     driver: bridge
-    name: cpa_main
+    name: rv_main

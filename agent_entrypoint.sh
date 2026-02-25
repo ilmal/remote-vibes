@@ -10,7 +10,7 @@ WORKSPACE_DIR="/workspace/${REPO_NAME}"
 mkdir -p "${WORKSPACE_DIR}"
 
 echo "[entrypoint] Configuring git identity..."
-git config --global user.email "agent@copilot-phone-agent.local"
+git config --global user.email "agent@remote-vibes.local"
 git config --global user.name "Copilot Agent"
 git config --global credential.helper store
 echo "https://x-access-token:${GITHUB_PAT}@github.com" > ~/.git-credentials

@@ -1,6 +1,4 @@
 # Docker Compose override for CI/testing
-version: "3.9"
-
 services:
   postgres:
     environment:

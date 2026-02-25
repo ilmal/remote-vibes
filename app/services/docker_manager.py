@@ -75,15 +75,15 @@ class DockerManager:
         code_server_port = _find_free_port(start=settings.agent_base_port)
         agent_api_port = _find_free_port(start=code_server_port + 1)
 
-        container_name = f"cpa-agent-{session_id[:8]}"
-        network_name = f"cpa-net-{session_id[:8]}"
+        container_name = f"rv-agent-{session_id[:8]}"
+        network_name = f"rv-net-{session_id[:8]}"
 
         # Create isolated network
         try:
             self._client.networks.create(
                 network_name,
                 driver="bridge",
-                labels={"cpa.session_id": session_id},
+                labels={"rv.session_id": session_id},
             )
         except docker.errors.APIError as e:
             if "already exists" not in str(e):
@@ -120,9 +120,9 @@ class DockerManager:
             },
             network=network_name,
             labels={
-                "cpa.session_id": session_id,
-                "cpa.repo": repo_full_name,
-                "cpa.managed": "true",
+                "rv.session_id": session_id,
+                "rv.repo": repo_full_name,
+                "rv.managed": "true",
             },
             # Security: read-only root, drop all linux caps
             read_only=False,   # code-server needs writes
@@ -158,7 +158,7 @@ class DockerManager:
         try:
             c = self._client.containers.get(container_id)
             labels = c.labels or {}
-            session_id = labels.get("cpa.session_id", "")
+            session_id = labels.get("rv.session_id", "")
 
             c.stop(timeout=10)
             c.remove(force=True)
@@ -166,7 +166,7 @@ class DockerManager:
 
             # Clean up network
             if session_id:
-                network_name = f"cpa-net-{session_id[:8]}"
+                network_name = f"rv-net-{session_id[:8]}"
                 try:
                     net = self._client.networks.get(network_name)
                     net.remove()
@@ -184,15 +184,15 @@ class DockerManager:
 
     def list_managed_containers(self) -> list[dict]:
         containers = self._client.containers.list(
-            filters={"label": "cpa.managed=true"}
+            filters={"label": "rv.managed=true"}
         )
         return [
             {
                 "id": c.id[:12],
                 "name": c.name,
                 "status": c.status,
-                "session_id": c.labels.get("cpa.session_id"),
-                "repo": c.labels.get("cpa.repo"),
+                "session_id": c.labels.get("rv.session_id"),
+                "repo": c.labels.get("rv.repo"),
             }
             for c in containers
         ]
@@ -202,7 +202,7 @@ class DockerManager:
         removed = 0
         for c in self._client.containers.list(
             all=True,
-            filters={"label": "cpa.managed=true", "status": "exited"},
+            filters={"label": "rv.managed=true", "status": "exited"},
         ):
             c.remove(force=True)
             removed += 1

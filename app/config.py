@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     )
 
     # ── App ──────────────────────────────────────────────────────────────────
-    app_name: str = "Copilot Phone Agent"
+    app_name: str = "Remote Vibes"
     app_env: Literal["development", "production", "test"] = "production"
     debug: bool = False
     log_level: str = "info"
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     whisper_models_dir: str = "/app/whisper_models"
 
     # ── Agent Containers ──────────────────────────────────────────────────────
-    agent_image: str = "cpa_agent:latest"
+    agent_image: str = "rv_agent:latest"
     agent_base_port: int = 9000
     repos_dir: str = "/app/repos"
 
