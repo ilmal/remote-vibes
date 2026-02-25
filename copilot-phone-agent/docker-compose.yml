@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cpa_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_123}
+      POSTGRES_DB: ${POSTGRES_DB:-copilot_agent}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - main
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-copilot_agent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: cpa_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_change_me}
+    volumes:
+      - redis_data:/data
+    networks:
+      - main
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis_change_me}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  main-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.main
+    container_name: cpa_main
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_123}@postgres:5432/${POSTGRES_DB:-copilot_agent}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_change_me}@redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # for dynamic container management
+      - whisper_models:/app/whisper_models            # persistent model cache
+      - repos_data:/app/repos                         # cloned repos
+    networks:
+      - main
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  whisper_models:
+    driver: local
+  repos_data:
+    driver: local
+
+networks:
+  main:
+    driver: bridge
+    name: cpa_main

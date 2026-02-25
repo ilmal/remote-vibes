@@ -1,0 +1,25 @@
+# Docker Compose override for CI/testing
+version: "3.9"
+
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: copilot_agent_test
+    ports:
+      - "5433:5432"   # avoid conflict with local postgres
+
+  main-app:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:change_me_123@postgres:5432/copilot_agent_test
+      DATABASE_URL_SYNC: postgresql+psycopg2://postgres:change_me_123@postgres:5432/copilot_agent_test
+      APP_ENV: test
+      DEBUG: "true"
+      LOG_LEVEL: debug
+      SECRET_KEY: test-secret-key-for-ci-only-not-production
+      GITHUB_PAT: ""
+    command: >
+      sh -c "alembic upgrade head &&
+             pytest --cov=app --cov-report=xml --cov-fail-under=70 -v"
+    depends_on:
+      postgres:
+        condition: service_healthy

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Settings – Copilot Phone Agent{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-base-200 p-4 sm:p-8" x-data="settingsPage()" x-init="init()">
+
+  <!-- Header -->
+  <div class="max-w-2xl mx-auto">
+    <div class="flex items-center gap-3 mb-8">
+      <a href="/dashboard" class="btn btn-ghost btn-sm btn-circle">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 12H5m7-7l-7 7 7 7"/>
+        </svg>
+      </a>
+      <h1 class="text-2xl font-bold">Settings</h1>
+    </div>
+
+    <!-- Status alerts -->
+    <div x-show="saved" class="alert alert-success mb-4">
+      <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+      </svg>
+      Settings saved successfully.
+    </div>
+    <div x-show="error" class="alert alert-error mb-4" x-text="error"></div>
+
+    <!-- Profile card -->
+    <div class="card bg-base-100 shadow-sm mb-4">
+      <div class="card-body gap-4">
+        <h2 class="card-title text-base">Profile</h2>
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Display Name</span></div>
+          <input type="text" x-model="form.display_name" placeholder="Admin"
+            class="input input-bordered w-full" />
+        </label>
+        <div class="text-sm text-base-content/50">
+          Email: <span x-text="profile.email" class="font-mono"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- GitHub PAT card -->
+    <div class="card bg-base-100 shadow-sm mb-4">
+      <div class="card-body gap-4">
+        <h2 class="card-title text-base">GitHub Integration</h2>
+        <div class="flex items-center gap-2">
+          <span class="badge" :class="profile.github_pat_set ? 'badge-success' : 'badge-warning'"
+            x-text="profile.github_pat_set ? '✓ PAT configured' : '⚠ No PAT'"></span>
+        </div>
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">GitHub Personal Access Token</span>
+            <span class="label-text-alt">
+              <a href="https://github.com/settings/tokens/new?scopes=repo,workflow" target="_blank"
+                class="link link-primary text-xs">Create token →</a>
+            </span>
+          </div>
+          <input type="password" x-model="form.github_pat"
+            placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            autocomplete="off"
+            class="input input-bordered w-full font-mono" />
+        </label>
+        <div class="text-xs text-base-content/50">
+          Required scopes: <code class="badge badge-ghost badge-xs">repo</code>
+          <code class="badge badge-ghost badge-xs">workflow</code>
+          <code class="badge badge-ghost badge-xs">read:user</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloudflare card -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+      <div class="card-body gap-4">
+        <h2 class="card-title text-base">
+          Cloudflare Tunnel
+          <span class="badge badge-ghost badge-sm">optional</span>
+        </h2>
+        <div class="flex items-center gap-2">
+          <span class="badge" :class="profile.cloudflare_token_set ? 'badge-success' : 'badge-ghost'"
+            x-text="profile.cloudflare_token_set ? '✓ Token configured' : 'Not configured'"></span>
+        </div>
+        <label class="form-control w-full">
+          <div class="label">
+            <span class="label-text">Cloudflare Tunnel Token</span>
+            <span class="label-text-alt">
+              <a href="https://one.dash.cloudflare.com/" target="_blank" class="link link-primary text-xs">
+                Dashboard →
+              </a>
+            </span>
+          </div>
+          <input type="password" x-model="form.cloudflare_token"
+            placeholder="eyJhIjoixxxxxx…"
+            autocomplete="off"
+            class="input input-bordered w-full font-mono text-xs" />
+        </label>
+        <p class="text-xs text-base-content/50">
+          When set, agent containers will expose a public URL via cloudflared.
+        </p>
+      </div>
+    </div>
+
+    <!-- Save button -->
+    <button @click="save" class="btn btn-primary w-full" :disabled="saving">
+      <span class="loading loading-spinner loading-sm" x-show="saving"></span>
+      <span x-text="saving ? 'Saving…' : 'Save Settings'"></span>
+    </button>
+
+    <!-- Danger zone -->
+    <div class="card bg-base-100 shadow-sm mt-8 border border-error/20">
+      <div class="card-body">
+        <h2 class="card-title text-base text-error">Danger Zone</h2>
+        <p class="text-sm text-base-content/60">Stop all running agent containers.</p>
+        <button @click="stopAllSessions" class="btn btn-outline btn-error btn-sm mt-2 w-fit">
+          Stop All Sessions
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function settingsPage() {
+  return {
+    profile: { email: '', github_pat_set: false, cloudflare_token_set: false, display_name: '' },
+    form: { display_name: '', github_pat: '', cloudflare_token: '' },
+    saving: false, saved: false, error: '',
+
+    token() {
+      const m = document.cookie.match(/access_token=([^;]+)/);
+      return m ? m[1] : '';
+    },
+    async api(path, opts={}) {
+      const res = await fetch(path, { ...opts,
+        headers: { 'Authorization': 'Bearer '+this.token(), 'Content-Type': 'application/json',
+                    ...(opts.headers||{}) } });
+      if (res.status === 401) { window.location.href='/login'; throw new Error('Unauthorized'); }
+      return res;
+    },
+    async init() {
+      const res = await this.api('/api/settings');
+      if (res.ok) {
+        this.profile = await res.json();
+        this.form.display_name = this.profile.display_name;
+      }
+    },
+    async save() {
+      this.saving = true; this.saved = false; this.error = '';
+      const body = { display_name: this.form.display_name || undefined };
+      if (this.form.github_pat) body.github_pat = this.form.github_pat;
+      if (this.form.cloudflare_token) body.cloudflare_token = this.form.cloudflare_token;
+      try {
+        const res = await this.api('/api/settings', { method: 'PATCH', body: JSON.stringify(body) });
+        if (res.ok) {
+          this.profile = await res.json();
+          this.saved = true;
+          this.form.github_pat = '';
+          this.form.cloudflare_token = '';
+          setTimeout(() => this.saved = false, 3000);
+        } else {
+          const d = await res.json();
+          this.error = d.detail || 'Save failed.';
+        }
+      } catch(e) { this.error = 'Network error.'; }
+      finally { this.saving = false; }
+    },
+    async stopAllSessions() {
+      if (!confirm('Stop all running sessions?')) return;
+      const res = await this.api('/api/sessions');
+      if (!res.ok) return;
+      const sessions = await res.json();
+      for (const s of sessions.filter(s => s.status === 'running')) {
+        await this.api(`/api/sessions/${s.id}`, { method: 'DELETE' });
+      }
+      alert('All sessions stopped.');
+    },
+  }
+}
+</script>
+{% endblock %}

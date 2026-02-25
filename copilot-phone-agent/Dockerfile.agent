@@ -1,0 +1,68 @@
+# ======================================================
+# Dockerfile.agent – Per-repo agent container
+# code-server + GitHub Copilot + Copilot SDK
+# ======================================================
+FROM ubuntu:22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# System packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3-pip \
+        git \
+        curl \
+        wget \
+        jq \
+        ca-certificates \
+        gnupg \
+        build-essential \
+        openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install code-server
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# ---- Python venv for agent ----
+RUN python3.11 -m venv /opt/agent-venv
+ENV PATH="/opt/agent-venv/bin:$PATH"
+
+COPY agent_requirements.txt /tmp/agent_requirements.txt
+RUN pip install --upgrade pip && pip install -r /tmp/agent_requirements.txt
+
+# ---- cloudflared ----
+RUN curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+        -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared
+
+# ---- Non-root user ----
+RUN groupadd -r agent && useradd -r -g agent -d /home/agent -m -s /bin/bash agent
+
+# code-server config dir
+RUN mkdir -p /home/agent/.config/code-server \
+    && chown -R agent:agent /home/agent
+
+COPY --chown=agent:agent agent_entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+COPY --chown=agent:agent app/services/copilot_agent_runner.py /app/agent_runner.py
+
+WORKDIR /workspace
+
+USER agent
+
+EXPOSE 8080 3000
+
+CMD ["/app/entrypoint.sh"]

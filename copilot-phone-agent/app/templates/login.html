@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Login – Copilot Phone Agent{% endblock %}
+{% block body %}
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="card w-full max-w-sm bg-base-100 shadow-2xl">
+    <div class="card-body gap-6">
+      <!-- Logo -->
+      <div class="flex flex-col items-center gap-2">
+        <div class="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+          <svg class="w-9 h-9 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold">Copilot Agent</h1>
+        <p class="text-sm text-base-content/60">Your AI coding assistant</p>
+      </div>
+
+      {% if error %}
+      <div class="alert alert-error text-sm py-2">
+        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 9v2m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        </svg>
+        {{ error }}
+      </div>
+      {% endif %}
+
+      <form method="post" action="/auth/web/login" class="flex flex-col gap-4">
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Email</span></div>
+          <input type="email" name="email" placeholder="you@example.com" required autocomplete="email"
+            class="input input-bordered w-full focus:input-primary" />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Password</span></div>
+          <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password"
+            class="input input-bordered w-full focus:input-primary" />
+        </label>
+
+        <button type="submit" class="btn btn-primary w-full mt-2">
+          Sign In
+        </button>
+      </form>
+
+      <p class="text-center text-sm text-base-content/60">
+        No account?
+        <a href="/register" class="link link-primary">Create one</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

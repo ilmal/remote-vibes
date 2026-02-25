@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+venv/
+.venv/
+env/
+ENV/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Docker
+*.dockerignore
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App runtime data
+app/static/css/output.css
+whisper_models/
+repos/
+*.log

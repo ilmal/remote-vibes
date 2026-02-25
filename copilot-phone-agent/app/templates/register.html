@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Register – Copilot Phone Agent{% endblock %}
+{% block body %}
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="card w-full max-w-sm bg-base-100 shadow-2xl" x-data="register()">
+    <div class="card-body gap-6">
+      <div class="flex flex-col items-center gap-2">
+        <div class="w-16 h-16 rounded-2xl bg-secondary/10 flex items-center justify-center">
+          <svg class="w-9 h-9 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold">Create Account</h1>
+      </div>
+
+      <div x-show="error" class="alert alert-error text-sm py-2" x-text="error"></div>
+      <div x-show="success" class="alert alert-success text-sm py-2">
+        Account created! <a href="/login" class="link font-bold">Sign in →</a>
+      </div>
+
+      <form x-show="!success" @submit.prevent="submit" class="flex flex-col gap-4">
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Display Name</span></div>
+          <input type="text" x-model="form.display_name" placeholder="Admin" required
+            class="input input-bordered w-full" />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Email</span></div>
+          <input type="email" x-model="form.email" placeholder="you@example.com" required autocomplete="email"
+            class="input input-bordered w-full" />
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Password</span></div>
+          <input type="password" x-model="form.password" placeholder="Min 8 characters" required minlength="8"
+            class="input input-bordered w-full" />
+        </label>
+
+        <button type="submit" class="btn btn-secondary w-full mt-2" :disabled="loading">
+          <span class="loading loading-spinner loading-sm" x-show="loading"></span>
+          <span x-text="loading ? 'Creating…' : 'Create Account'"></span>
+        </button>
+      </form>
+
+      <p class="text-center text-sm text-base-content/60">
+        Already have an account?
+        <a href="/login" class="link link-primary">Sign in</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+function register() {
+  return {
+    form: { email: '', password: '', display_name: 'Admin' },
+    loading: false,
+    error: '',
+    success: false,
+    async submit() {
+      this.loading = true; this.error = '';
+      try {
+        const res = await fetch('/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.form.email, password: this.form.password,
+                                  display_name: this.form.display_name }),
+        });
+        if (res.ok) { this.success = true; }
+        else {
+          const d = await res.json();
+          this.error = d.detail?.message || d.detail || 'Registration failed.';
+        }
+      } catch(e) { this.error = 'Network error.'; }
+      finally { this.loading = false; }
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,636 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Copilot Phone Agent{% endblock %}
+{% block body %}
+
+<div class="h-screen flex flex-col overflow-hidden" x-data="dashboard()" x-init="init()">
+
+  <!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+  <header class="navbar bg-base-100 border-b border-base-300 px-4 min-h-14 shrink-0 z-10">
+    <div class="flex-1 gap-3">
+      <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+        <svg class="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+        </svg>
+      </div>
+      <span class="font-bold text-base hidden sm:block">Copilot Agent</span>
+    </div>
+    <div class="flex-none gap-2">
+      <button @click="sidebarOpen = !sidebarOpen" class="btn btn-ghost btn-sm lg:hidden">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+      <a href="/settings-page" class="btn btn-ghost btn-sm btn-circle">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+        </svg>
+      </a>
+      <form method="post" action="/auth/web/logout">
+        <button type="submit" class="btn btn-ghost btn-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+          <span class="hidden sm:inline">Logout</span>
+        </button>
+      </form>
+    </div>
+  </header>
+
+  <!-- ── Main layout ────────────────────────────────────────────────────── -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ── Sidebar: Repos + Active Sessions ──────────────────────────────── -->
+    <aside class="w-72 bg-base-100 border-r border-base-300 flex flex-col overflow-hidden shrink-0"
+           :class="sidebarOpen ? 'block' : 'hidden lg:flex'">
+
+      <!-- Repo search -->
+      <div class="p-3 border-b border-base-300">
+        <label class="input input-bordered input-sm flex items-center gap-2 w-full">
+          <svg class="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <input type="text" x-model="repoSearch" placeholder="Search repos…" class="grow bg-transparent" />
+        </label>
+      </div>
+
+      <!-- Repos list -->
+      <div class="flex-1 overflow-y-auto">
+        <div class="p-3 pb-1 flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/50">Repositories</span>
+          <button @click="loadRepos" class="btn btn-ghost btn-xs btn-circle" :class="reposLoading && 'animate-spin'">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+          </button>
+        </div>
+
+        <template x-if="reposError">
+          <div class="px-3 pb-3">
+            <div class="alert alert-warning text-xs py-2" x-text="reposError"></div>
+          </div>
+        </template>
+
+        <ul class="menu menu-xs px-1 pb-3 gap-0.5">
+          <template x-for="repo in filteredRepos" :key="repo.full_name">
+            <li>
+              <button
+                @click="selectRepo(repo)"
+                :class="selectedRepo?.full_name === repo.full_name ? 'active' : ''"
+                class="flex items-start gap-2 py-2 px-2 rounded-lg text-left w-full">
+                <svg class="w-4 h-4 mt-0.5 shrink-0 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/>
+                </svg>
+                <span class="flex-1 min-w-0">
+                  <span class="block truncate font-medium text-xs" x-text="repo.name"></span>
+                  <span class="block truncate text-xs text-base-content/50" x-text="repo.description || repo.language || ''"></span>
+                </span>
+                <span x-show="repo.private" class="badge badge-xs badge-ghost shrink-0">private</span>
+              </button>
+            </li>
+          </template>
+          <template x-if="reposLoading">
+            <li class="px-2 py-4 flex justify-center">
+              <span class="loading loading-dots loading-sm opacity-50"></span>
+            </li>
+          </template>
+          <template x-if="!reposLoading && repos.length === 0 && !reposError">
+            <li class="px-2 py-3 text-xs text-base-content/40 text-center">
+              No repos found.<br>Add your GitHub PAT in Settings.
+            </li>
+          </template>
+        </ul>
+
+        <!-- Active Sessions -->
+        <div class="border-t border-base-300 p-3 pb-1">
+          <span class="text-xs font-semibold uppercase tracking-wider text-base-content/50">Active Sessions</span>
+        </div>
+        <ul class="menu menu-xs px-1 pb-3 gap-0.5">
+          <template x-for="sess in activeSessions" :key="sess.id">
+            <li>
+              <button @click="switchToSession(sess)"
+                :class="activeSession?.id === sess.id ? 'active' : ''"
+                class="flex items-center gap-2 py-2 px-2 rounded-lg w-full">
+                <span class="badge badge-xs" :class="sess.status === 'running' ? 'badge-success' : 'badge-warning'"
+                  x-text="sess.status"></span>
+                <span class="flex-1 truncate text-xs font-medium" x-text="sess.repo_name"></span>
+                <button @click.stop="stopSession(sess.id)"
+                  class="btn btn-ghost btn-xs btn-circle text-error hover:bg-error/10" title="Stop session">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                </button>
+              </button>
+            </li>
+          </template>
+          <template x-if="activeSessions.length === 0">
+            <li class="px-2 py-2 text-xs text-base-content/40 text-center">No active sessions.</li>
+          </template>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- ── Central panel ──────────────────────────────────────────────────── -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- ── No session selected ─────────────────────────────────────────── -->
+      <div x-show="!activeSession" class="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-center">
+        <div class="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center">
+          <svg class="w-12 h-12 text-primary/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+          </svg>
+        </div>
+
+        <template x-if="selectedRepo">
+          <div class="flex flex-col items-center gap-4">
+            <div>
+              <h2 class="text-xl font-bold" x-text="selectedRepo.name"></h2>
+              <p class="text-sm text-base-content/50 mt-1" x-text="selectedRepo.description || ''"></p>
+            </div>
+            <div class="flex gap-2 flex-wrap justify-center">
+              <span class="badge badge-outline" x-text="selectedRepo.language || 'unknown'"></span>
+              <span class="badge badge-outline" x-text="selectedRepo.default_branch"></span>
+              <span x-show="selectedRepo.private" class="badge badge-warning badge-outline">private</span>
+            </div>
+            <button @click="startSession"
+              class="btn btn-primary btn-lg gap-2"
+              :class="sessionStarting && 'loading'">
+              <svg x-show="!sessionStarting" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l14 9-14 9V3z"/>
+              </svg>
+              <span x-text="sessionStarting ? 'Starting…' : 'Start Agent Session'"></span>
+            </button>
+          </div>
+        </template>
+
+        <template x-if="!selectedRepo">
+          <div>
+            <h2 class="text-xl font-bold">Select a Repository</h2>
+            <p class="text-sm text-base-content/50 mt-2">
+              Pick a repo from the sidebar to start an agent session.<br>
+              <span class="text-xs">First time? Add your GitHub PAT in
+                <a href="/settings-page" class="link link-primary">Settings</a>.</span>
+            </p>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── Active session: Chat + code-server ──────────────────────────── -->
+      <div x-show="activeSession" class="flex-1 flex flex-col overflow-hidden">
+
+        <!-- Session header bar -->
+        <div class="flex items-center gap-3 px-4 py-2 bg-base-100 border-b border-base-300">
+          <span class="badge badge-success badge-sm">running</span>
+          <span class="font-medium text-sm" x-text="activeSession?.repo_name"></span>
+          <span class="text-xs text-base-content/40" x-text="activeSession?.branch"></span>
+          <div class="flex-1"></div>
+          <!-- code-server link -->
+          <template x-if="activeSession?.code_server_port">
+            <a :href="`http://${location.hostname}:${activeSession.code_server_port}`" target="_blank"
+               class="btn btn-ghost btn-xs gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+              </svg>
+              Editor
+            </a>
+          </template>
+          <!-- PR button -->
+          <button @click="showPrModal = true" class="btn btn-outline btn-xs btn-success gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>
+            </svg>
+            Done → PR
+          </button>
+          <!-- Stop button -->
+          <button @click="stopSession(activeSession.id)" class="btn btn-ghost btn-xs text-error">
+            Stop
+          </button>
+        </div>
+
+        <!-- Chat window -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-3" id="chat-messages" x-ref="chatMessages">
+          <template x-for="(msg, idx) in messages" :key="idx">
+            <div class="chat-bubble-anim" :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+
+              <!-- User bubble -->
+              <template x-if="msg.role === 'user'">
+                <div class="chat-bubble bg-primary text-primary-content max-w-[80%] text-sm px-4 py-2 rounded-2xl rounded-tr-sm shadow-sm"
+                  x-text="msg.content"></div>
+              </template>
+
+              <!-- Assistant / tool bubble -->
+              <template x-if="msg.role !== 'user'">
+                <div class="max-w-[85%] flex flex-col gap-1">
+                  <!-- Type badge -->
+                  <div class="flex items-center gap-1.5 pl-1">
+                    <template x-if="msg.type === 'thinking'">
+                      <span class="badge badge-xs badge-ghost gap-1">
+                        <span class="dot-1">●</span><span class="dot-2">●</span><span class="dot-3">●</span>
+                      </span>
+                    </template>
+                    <template x-if="msg.type === 'tool_call'">
+                      <span class="badge badge-xs badge-secondary" x-text="'⚙ ' + (msg.tool_name || 'tool')"></span>
+                    </template>
+                    <template x-if="msg.type === 'status'">
+                      <span class="badge badge-xs badge-info">status</span>
+                    </template>
+                    <template x-if="msg.type === 'error'">
+                      <span class="badge badge-xs badge-error">error</span>
+                    </template>
+                  </div>
+                  <div class="bg-base-100 border border-base-300 rounded-2xl rounded-tl-sm px-4 py-2 text-sm shadow-sm prose prose-sm max-w-none"
+                    x-html="renderMarkdown(msg.content)"></div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Streaming indicator -->
+          <template x-if="streaming">
+            <div class="flex justify-start">
+              <div class="bg-base-100 border border-base-300 rounded-2xl px-4 py-3 flex items-center gap-1.5 shadow-sm">
+                <span class="dot-1 text-primary">●</span>
+                <span class="dot-2 text-primary">●</span>
+                <span class="dot-3 text-primary">●</span>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- ── Input area ──────────────────────────────────────────────── -->
+        <div class="p-3 bg-base-100 border-t border-base-300">
+          <div class="flex gap-2 items-end">
+            <!-- Mic button -->
+            <button @click="toggleRecording" title="Voice input"
+              class="btn btn-circle btn-sm shrink-0 mb-0.5"
+              :class="recording ? 'btn-error recording-pulse' : 'btn-ghost'">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 016 0v8.25a3 3 0 01-3 3z"/>
+              </svg>
+            </button>
+
+            <!-- Text input -->
+            <div class="relative flex-1">
+              <textarea x-model="inputText"
+                @keydown.enter.prevent="if(!$event.shiftKey) sendMessage()"
+                placeholder="Type a message or say 'done with feature X'…"
+                rows="1"
+                class="textarea textarea-bordered w-full resize-none text-sm leading-relaxed py-2.5 pr-10"
+                style="min-height: 42px; max-height: 120px;"
+                :disabled="streaming"
+                x-effect="autoResize($el)">
+              </textarea>
+            </div>
+
+            <!-- Send button -->
+            <button @click="sendMessage"
+              :disabled="streaming || !inputText.trim()"
+              class="btn btn-primary btn-sm btn-circle shrink-0 mb-0.5">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Recording status -->
+          <div x-show="recording" class="mt-2 flex items-center gap-2 text-xs text-error">
+            <span class="w-2 h-2 bg-error rounded-full animate-pulse"></span>
+            Recording… tap mic to stop and transcribe
+          </div>
+          <div x-show="transcribing" class="mt-2 flex items-center gap-2 text-xs text-info">
+            <span class="loading loading-spinner loading-xs"></span>
+            Transcribing audio…
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ── PR Modal ──────────────────────────────────────────────────────────── -->
+<dialog class="modal" :class="showPrModal && 'modal-open'" x-data x-show="$root.__x.$data.showPrModal">
+  <div class="modal-box" x-data>
+    <h3 class="font-bold text-lg">Create Pull Request</h3>
+    <p class="text-sm text-base-content/60 mt-1">
+      This will commit all changes, create a feature branch, and open a PR.
+    </p>
+    <div class="mt-4">
+      <label class="form-control w-full">
+        <div class="label"><span class="label-text">Feature name</span></div>
+        <input type="text" x-model="$root.__x.$data.prFeatureName"
+          placeholder="e.g. user-profile-page"
+          class="input input-bordered w-full" />
+      </label>
+    </div>
+    <div class="modal-action">
+      <button @click="$root.__x.$data.showPrModal = false" class="btn btn-ghost">Cancel</button>
+      <button @click="$root.__x.$data.createPR()" class="btn btn-success gap-2"
+        :disabled="$root.__x.$data.prLoading">
+        <span class="loading loading-spinner loading-xs" x-show="$root.__x.$data.prLoading"></span>
+        Create PR
+      </button>
+    </div>
+  </div>
+  <div class="modal-backdrop" @click="$root.__x.$data.showPrModal = false"></div>
+</dialog>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Minimal Markdown renderer (no heavy libraries)
+function renderMarkdown(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/```([\s\S]*?)```/g, '<pre class="bg-base-300 rounded p-2 text-xs overflow-x-auto my-1"><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code class="bg-base-300 px-1 rounded text-xs">$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<h3 class="font-bold text-sm mt-2">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="font-bold text-base mt-2">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="font-bold text-lg mt-2">$1</h1>')
+    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc text-sm">$1</li>')
+    .replace(/\n/g, '<br>');
+}
+
+function dashboard() {
+  return {
+    // UI state
+    sidebarOpen: false,
+    reposLoading: false,
+    reposError: '',
+    repos: [],
+    repoSearch: '',
+    selectedRepo: null,
+    sessionStarting: false,
+    activeSessions: [],
+    activeSession: null,
+    messages: [],
+    inputText: '',
+    streaming: false,
+    recording: false,
+    transcribing: false,
+    showPrModal: false,
+    prFeatureName: '',
+    prLoading: false,
+    mediaRecorder: null,
+    audioChunks: [],
+
+    get filteredRepos() {
+      if (!this.repoSearch) return this.repos;
+      const q = this.repoSearch.toLowerCase();
+      return this.repos.filter(r => r.name.toLowerCase().includes(q) ||
+        (r.description || '').toLowerCase().includes(q));
+    },
+
+    async init() {
+      await Promise.all([this.loadRepos(), this.loadSessions()]);
+    },
+
+    token() {
+      const m = document.cookie.match(/access_token=([^;]+)/);
+      return m ? m[1] : '';
+    },
+
+    async api(path, opts = {}) {
+      const res = await fetch(path, {
+        ...opts,
+        headers: { 'Authorization': 'Bearer ' + this.token(), 'Content-Type': 'application/json',
+                    ...(opts.headers || {}) },
+      });
+      if (res.status === 401) { window.location.href = '/login'; throw new Error('Unauthorized'); }
+      return res;
+    },
+
+    async loadRepos() {
+      this.reposLoading = true; this.reposError = '';
+      try {
+        const res = await this.api('/api/repos');
+        if (!res.ok) { this.reposError = 'Failed to load repos. Check your GitHub PAT in Settings.'; return; }
+        this.repos = await res.json();
+      } catch(e) { this.reposError = 'Network error loading repos.'; }
+      finally { this.reposLoading = false; }
+    },
+
+    async loadSessions() {
+      try {
+        const res = await this.api('/api/sessions');
+        if (!res.ok) return;
+        const all = await res.json();
+        this.activeSessions = all.filter(s => s.status === 'running');
+      } catch(e) {}
+    },
+
+    selectRepo(repo) {
+      this.selectedRepo = repo;
+      this.sidebarOpen = false;
+      // Check if there's already a session for this repo
+      const existing = this.activeSessions.find(s => s.repo_full_name === repo.full_name);
+      if (existing) this.switchToSession(existing);
+      else this.activeSession = null;
+    },
+
+    switchToSession(sess) {
+      this.activeSession = sess;
+      this.messages = [];
+      this.selectedRepo = { name: sess.repo_name, full_name: sess.repo_full_name,
+                            description: '', default_branch: sess.branch, language: '', private: false };
+    },
+
+    async startSession() {
+      if (!this.selectedRepo) return;
+      this.sessionStarting = true;
+      try {
+        const res = await this.api('/api/sessions', {
+          method: 'POST',
+          body: JSON.stringify({
+            repo_full_name: this.selectedRepo.full_name,
+            repo_name: this.selectedRepo.name,
+            branch: this.selectedRepo.default_branch || 'main',
+          }),
+        });
+        if (!res.ok) {
+          const d = await res.json();
+          alert('Failed to start session: ' + (d.detail || 'unknown error'));
+          return;
+        }
+        const sess = await res.json();
+        this.activeSessions.push(sess);
+        this.switchToSession(sess);
+        this.messages.push({ role: 'assistant', type: 'status', content:
+          `✅ Session started for **${sess.repo_name}**!\n\nAgent container is running.\nYou can now chat, use voice, or open the code editor.` });
+      } catch(e) { alert('Error: ' + e); }
+      finally { this.sessionStarting = false; }
+    },
+
+    async stopSession(id) {
+      if (!confirm('Stop this session?')) return;
+      try {
+        await this.api(`/api/sessions/${id}`, { method: 'DELETE' });
+        this.activeSessions = this.activeSessions.filter(s => s.id !== id);
+        if (this.activeSession?.id === id) { this.activeSession = null; this.messages = []; }
+      } catch(e) {}
+    },
+
+    async sendMessage() {
+      const text = this.inputText.trim();
+      if (!text || this.streaming || !this.activeSession) return;
+      this.inputText = '';
+      this.messages.push({ role: 'user', content: text, type: 'text' });
+      this.streaming = true;
+      this.scrollToBottom();
+
+      // Detect "done with feature X" trigger
+      const m = text.match(/done\s+with(?:\s+feature)?\s+(.+)/i);
+      if (m) { await this.triggerPR(m[1].trim()); this.streaming = false; return; }
+
+      try {
+        const history = this.messages
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .slice(-20)
+          .map(m => ({ role: m.role, content: m.content }));
+
+        const res = await fetch(`/api/chat/${this.activeSession.id}/stream`, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + this.token(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: this.activeSession.id, message: text, history }),
+        });
+
+        if (!res.ok) { this.messages.push({ role: 'assistant', type: 'error', content: 'HTTP ' + res.status }); return; }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue;
+            const raw = line.slice(5).trim();
+            if (raw === '[DONE]') break;
+            try {
+              const chunk = JSON.parse(raw);
+              if (chunk.type === 'done') break;
+              if (chunk.type !== 'thinking' || this.messages[this.messages.length-1]?.type !== 'thinking') {
+                this.messages.push({ role: 'assistant', ...chunk });
+              }
+              this.scrollToBottom();
+            } catch(e) {}
+          }
+        }
+      } catch(e) {
+        this.messages.push({ role: 'assistant', type: 'error', content: 'Connection error: ' + e });
+      } finally {
+        this.streaming = false;
+        this.scrollToBottom();
+      }
+    },
+
+    async triggerPR(featureName) {
+      this.messages.push({ role: 'assistant', type: 'status', content: `Creating PR for: **${featureName}**…` });
+      try {
+        const res = await this.api(`/api/chat/${this.activeSession.id}/create-pr?feature_name=${encodeURIComponent(featureName)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': '' },
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.messages.push({ role: 'assistant', type: 'text', content:
+            `✅ PR created!\n\n**Branch:** \`${data.branch}\`\n**PR:** [View on GitHub](${data.pr_url})` });
+        } else {
+          this.messages.push({ role: 'assistant', type: 'error', content: data.detail || 'PR creation failed.' });
+        }
+      } catch(e) { this.messages.push({ role: 'assistant', type: 'error', content: String(e) }); }
+      this.scrollToBottom();
+    },
+
+    async createPR() {
+      if (!this.prFeatureName.trim()) return;
+      this.prLoading = true;
+      this.showPrModal = false;
+      await this.triggerPR(this.prFeatureName.trim());
+      this.prFeatureName = '';
+      this.prLoading = false;
+    },
+
+    // ── Voice recording ─────────────────────────────────────────────────────
+    async toggleRecording() {
+      if (this.recording) {
+        this.mediaRecorder?.stop();
+        this.recording = false;
+      } else {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          this.audioChunks = [];
+          this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+          this.mediaRecorder.ondataavailable = e => this.audioChunks.push(e.data);
+          this.mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(t => t.stop());
+            await this.transcribeAudio();
+          };
+          this.mediaRecorder.start();
+          this.recording = true;
+        } catch(e) { alert('Microphone access denied: ' + e.message); }
+      }
+    },
+
+    async transcribeAudio() {
+      if (!this.audioChunks.length) return;
+      this.transcribing = true;
+      try {
+        const blob = new Blob(this.audioChunks, { type: 'audio/webm' });
+        const fd = new FormData();
+        fd.append('audio', blob, 'recording.webm');
+        const res = await fetch('/api/voice/transcribe', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + this.token() },
+          body: fd,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.text) {
+            this.inputText = data.text;
+            // Auto-send if non-empty
+            this.$nextTick(() => this.sendMessage());
+          }
+        } else {
+          const d = await res.json().catch(() => ({}));
+          alert('Transcription failed: ' + (d.detail || res.status));
+        }
+      } catch(e) { alert('Transcription error: ' + e); }
+      finally { this.transcribing = false; this.audioChunks = []; }
+    },
+
+    scrollToBottom() {
+      this.$nextTick(() => {
+        const el = this.$refs.chatMessages;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    },
+  }
+}
+</script>
+{% endblock %}

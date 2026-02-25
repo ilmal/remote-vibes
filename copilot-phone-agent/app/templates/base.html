@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="night" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>{% block title %}Copilot Phone Agent{% endblock %}</title>
+
+  <!-- Tailwind CSS v3 + DaisyUI via CDN (tiny, single request) -->
+  <link rel="preload" as="style"
+    href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" />
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" />
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
+  <!-- htmx SSE extension -->
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js" defer></script>
+
+  <!-- Alpine.js v3 -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: hsl(var(--bc) / 0.2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: hsl(var(--bc) / 0.4); }
+
+    /* Smooth transitions */
+    * { transition-property: color, background-color, border-color;
+        transition-duration: 150ms; }
+
+    /* Chat bubble animation */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .chat-bubble-anim { animation: fadeUp 0.2s ease; }
+
+    /* Thinking dots */
+    @keyframes blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+    .dot-1 { animation: blink 1.2s .0s infinite; }
+    .dot-2 { animation: blink 1.2s .2s infinite; }
+    .dot-3 { animation: blink 1.2s .4s infinite; }
+
+    /* Recording pulse */
+    @keyframes pulse-ring {
+      0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.7); }
+      70%  { box-shadow: 0 0 0 12px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+    .recording-pulse { animation: pulse-ring 1.2s cubic-bezier(.455,.03,.515,.955) infinite; }
+  </style>
+
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="h-full bg-base-200 text-base-content font-sans antialiased">
+  {% block body %}{% endblock %}
+
+  <script>
+    // Global: read JWT from cookie and attach to all fetch/HTMX requests
+    function getToken() {
+      const m = document.cookie.match(/access_token=([^;]+)/);
+      return m ? m[1] : null;
+    }
+
+    // Attach bearer token to every htmx request
+    document.body.addEventListener('htmx:configRequest', (evt) => {
+      const token = getToken();
+      if (token) evt.detail.headers['Authorization'] = 'Bearer ' + token;
+    });
+
+    // Global HTMX error handler
+    document.body.addEventListener('htmx:responseError', (evt) => {
+      const status = evt.detail.xhr?.status;
+      if (status === 401) window.location.href = '/login';
+    });
+  </script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>
