@@ -23,7 +23,6 @@ htmlcov/
 alembic/versions/__pycache__/
 
 # Docker
-*.dockerignore
 
 # Env files
 .env

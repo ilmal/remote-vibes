@@ -1,4 +1,4 @@
-"""Shared pytest fixtures."""
+"""Shared pytest fixtures for all test modules."""
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +14,7 @@ from app.main import app
 from app.dependencies import get_db
 from app.models.base import Base
 
-# ── Event loop ────────────────────────────────────────────────────────────────
+# ── Event loop (session-scoped) ───────────────────────────────────────────────
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()
@@ -22,13 +22,15 @@ def event_loop():
     loop.close()
 
 
-# ── In-memory SQLite DB for tests ─────────────────────────────────────────────
+# ── In-memory SQLite DB ───────────────────────────────────────────────────────
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest_asyncio.fixture(scope="session")
 async def engine_fixture():
-    engine = create_async_engine(TEST_DB_URL, echo=False)
+    engine = create_async_engine(
+        TEST_DB_URL, echo=False, connect_args={"check_same_thread": False}
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -45,15 +47,12 @@ async def db_session(engine_fixture) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """FastAPI test client with overridden DB dependency."""
-
+    """FastAPI test client backed by in-memory SQLite."""
     async def override_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_db
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
 
@@ -61,17 +60,16 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 @pytest_asyncio.fixture
 async def auth_client(client: AsyncClient) -> AsyncClient:
     """Test client pre-authenticated with a fresh user account."""
-    email = f"test_{uuid.uuid4().hex[:8]}@example.com"
+    uid = uuid.uuid4().hex[:8]
+    email = f"testuser_{uid}@example.com"
     password = "SecurePass123!"
 
-    # Register
     r = await client.post(
         "/auth/register",
-        json={"email": email, "password": password, "display_name": "Test"},
+        json={"email": email, "password": password, "display_name": f"User {uid}"},
     )
     assert r.status_code in (200, 201), f"Registration failed: {r.text}"
 
-    # Login
     r = await client.post(
         "/auth/jwt/login",
         data={"username": email, "password": password},
@@ -81,3 +79,11 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
     token = r.json()["access_token"]
     client.headers.update({"Authorization": f"Bearer {token}"})
     return client
+
+
+@pytest_asyncio.fixture
+async def auth_client_with_pat(auth_client: AsyncClient) -> AsyncClient:
+    """Authenticated client that also has a GitHub PAT set."""
+    r = await auth_client.patch("/api/settings", json={"github_pat": "ghp_faketoken12345678"})
+    assert r.status_code == 200
+    return auth_client

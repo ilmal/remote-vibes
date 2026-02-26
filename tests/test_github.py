@@ -68,8 +68,10 @@ async def test_list_repos_github_error(mock_gh_cls, auth_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_list_repos_no_pat(auth_client: AsyncClient):
+@patch("app.config.get_settings")
+async def test_list_repos_no_pat(mock_settings, auth_client: AsyncClient):
     """Without a PAT, should return 422."""
+    mock_settings.return_value.github_pat = ""
     r = await auth_client.get("/api/repos")
     # Either 422 (no PAT) or could be 503 if it tries anyway
     assert r.status_code in (422, 503)

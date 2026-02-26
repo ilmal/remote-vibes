@@ -1,98 +1,138 @@
-"""Session tests: create, list, stop."""
+"""Tests: session CRUD – create, list, get, status, stop."""
+from __future__ import annotations
+import uuid
 import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
-MOCK_CONTAINER_INFO = {
-    "container_id": "abc123def456" * 3,
-    "container_name": "rv-agent-abc123",
-    "network_name": "rv-net-abc123",
+MOCK_CONTAINER = {
+    "container_id": "deadbeef" * 8,
+    "container_name": "rv-agent-deadbeef",
+    "network_name": "rv-net-deadbeef",
     "code_server_port": 9000,
     "agent_api_port": 9001,
 }
+SESSION_PAYLOAD = {"repo_full_name": "user/repo", "repo_name": "repo", "branch": "main"}
 
 
-@pytest.mark.asyncio
 async def test_list_sessions_empty(auth_client: AsyncClient):
     r = await auth_client.get("/api/sessions")
     assert r.status_code == 200
     assert r.json() == []
 
 
-@pytest.mark.asyncio
-async def test_start_session_no_pat(auth_client: AsyncClient):
-    """Starting a session without a PAT should fail with 422."""
-    r = await auth_client.post(
-        "/api/sessions",
-        json={
-            "repo_full_name": "testuser/testrepo",
-            "repo_name": "testrepo",
-            "branch": "main",
-        },
-    )
-    # No PAT in env or user → expect 422
-    assert r.status_code in (422, 500)
+@patch("app.routers.sessions.settings")
+async def test_start_session_no_pat(mock_settings, auth_client: AsyncClient):
+    """No PAT → 422 when neither user nor global settings have a PAT."""
+    mock_settings.github_pat = ""
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
+    assert r.status_code == 422
 
 
-@pytest.mark.asyncio
 @patch("app.routers.sessions.get_docker_manager")
 async def test_start_session_with_pat(mock_dm_factory, auth_client: AsyncClient):
-    """Set PAT then start a session – mock Docker to avoid real containers."""
-    # First, set PAT
-    await auth_client.patch("/api/settings", json={"github_pat": "ghp_testfaketoken"})
-
-    # Mock docker manager
+    await auth_client.patch("/api/settings", json={"github_pat": "ghp_fake"})
     mock_dm = MagicMock()
-    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER_INFO)
+    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER)
     mock_dm_factory.return_value = mock_dm
 
-    r = await auth_client.post(
-        "/api/sessions",
-        json={
-            "repo_full_name": "testuser/testrepo",
-            "repo_name": "testrepo",
-            "branch": "main",
-        },
-    )
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
     assert r.status_code == 201, r.text
     data = r.json()
-    assert data["repo_name"] == "testrepo"
+    assert data["repo_name"] == "repo"
     assert data["status"] == "running"
     assert data["code_server_port"] == 9000
+    assert data["agent_api_port"] == 9001
 
 
-@pytest.mark.asyncio
 @patch("app.routers.sessions.get_docker_manager")
-async def test_stop_session(mock_dm_factory, auth_client: AsyncClient):
-    """Create then stop a session."""
-    await auth_client.patch("/api/settings", json={"github_pat": "ghp_testfaketoken"})
-
+async def test_get_session_by_id(mock_dm_factory, auth_client: AsyncClient):
+    await auth_client.patch("/api/settings", json={"github_pat": "ghp_fake"})
     mock_dm = MagicMock()
-    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER_INFO)
-    mock_dm.stop_container = AsyncMock()
+    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER)
     mock_dm_factory.return_value = mock_dm
 
-    # Start
-    r = await auth_client.post(
-        "/api/sessions",
-        json={"repo_full_name": "u/r", "repo_name": "r", "branch": "main"},
-    )
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
     assert r.status_code == 201
     session_id = r.json()["id"]
 
-    # Stop
+    r = await auth_client.get(f"/api/sessions/{session_id}")
+    assert r.status_code == 200
+    assert r.json()["id"] == session_id
+
+
+@patch("app.routers.sessions.get_docker_manager")
+async def test_get_session_status(mock_dm_factory, auth_client: AsyncClient):
+    await auth_client.patch("/api/settings", json={"github_pat": "ghp_fake"})
+    mock_dm = MagicMock()
+    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER)
+    mock_dm.get_container_status = MagicMock(return_value="running")
+    mock_dm_factory.return_value = mock_dm
+
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
+    session_id = r.json()["id"]
+
+    r = await auth_client.get(f"/api/sessions/{session_id}/status")
+    assert r.status_code == 200
+    data = r.json()
+    assert "db_status" in data
+    assert "container_status" in data
+
+
+@patch("app.routers.sessions.get_docker_manager")
+async def test_stop_session(mock_dm_factory, auth_client: AsyncClient):
+    await auth_client.patch("/api/settings", json={"github_pat": "ghp_fake"})
+    mock_dm = MagicMock()
+    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER)
+    mock_dm.stop_container = AsyncMock()
+    mock_dm_factory.return_value = mock_dm
+
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
+    session_id = r.json()["id"]
+
     r = await auth_client.delete(f"/api/sessions/{session_id}")
     assert r.status_code == 204
 
-    # Verify stopped
+
+@patch("app.routers.sessions.get_docker_manager")
+async def test_stop_session_then_status_is_stopped(mock_dm_factory, auth_client: AsyncClient):
+    await auth_client.patch("/api/settings", json={"github_pat": "ghp_fake"})
+    mock_dm = MagicMock()
+    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER)
+    mock_dm.stop_container = AsyncMock()
+    mock_dm_factory.return_value = mock_dm
+
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
+    session_id = r.json()["id"]
+    await auth_client.delete(f"/api/sessions/{session_id}")
+
     r = await auth_client.get(f"/api/sessions/{session_id}")
     assert r.status_code == 200
     assert r.json()["status"] == "stopped"
 
 
-@pytest.mark.asyncio
 async def test_get_nonexistent_session(auth_client: AsyncClient):
-    import uuid
     r = await auth_client.get(f"/api/sessions/{uuid.uuid4()}")
     assert r.status_code == 404
+
+
+async def test_delete_nonexistent_session(auth_client: AsyncClient):
+    r = await auth_client.delete(f"/api/sessions/{uuid.uuid4()}")
+    assert r.status_code == 404
+
+
+@patch("app.routers.sessions.get_docker_manager")
+async def test_list_sessions_after_create(mock_dm_factory, auth_client: AsyncClient):
+    await auth_client.patch("/api/settings", json={"github_pat": "ghp_fake"})
+    mock_dm = MagicMock()
+    mock_dm.start_agent_container = AsyncMock(return_value=MOCK_CONTAINER)
+    mock_dm_factory.return_value = mock_dm
+
+    r = await auth_client.post("/api/sessions", json=SESSION_PAYLOAD)
+    assert r.status_code == 201
+
+    r = await auth_client.get("/api/sessions")
+    assert r.status_code == 200
+    sessions = r.json()
+    assert len(sessions) >= 1
+    assert any(s["repo_name"] == "repo" for s in sessions)
