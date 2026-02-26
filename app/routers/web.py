@@ -48,7 +48,7 @@ async def dashboard(request: Request):
     token = _get_token_from_request(request)
     if not token:
         return RedirectResponse("/login")
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse("dashboard.html", {"request": request, "auth_token": token})
 
 
 @router.get("/settings-page", response_class=HTMLResponse)

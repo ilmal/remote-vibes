@@ -318,39 +318,40 @@
       </div>
     </main>
   </div>
-</div>
 
-<!-- ── PR Modal ──────────────────────────────────────────────────────────── -->
-<dialog class="modal" :class="showPrModal && 'modal-open'" x-data x-show="$root.__x.$data.showPrModal">
-  <div class="modal-box" x-data>
-    <h3 class="font-bold text-lg">Create Pull Request</h3>
-    <p class="text-sm text-base-content/60 mt-1">
-      This will commit all changes, create a feature branch, and open a PR.
-    </p>
-    <div class="mt-4">
-      <label class="form-control w-full">
-        <div class="label"><span class="label-text">Feature name</span></div>
-        <input type="text" x-model="$root.__x.$data.prFeatureName"
-          placeholder="e.g. user-profile-page"
-          class="input input-bordered w-full" />
-      </label>
+  <!-- ── PR Modal (inside x-data scope) ───────────────────────────────────── -->
+  <dialog class="modal" :class="showPrModal && 'modal-open'">
+    <div class="modal-box">
+      <h3 class="font-bold text-lg">Create Pull Request</h3>
+      <p class="text-sm text-base-content/60 mt-1">
+        This will commit all changes, create a feature branch, and open a PR.
+      </p>
+      <div class="mt-4">
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Feature name</span></div>
+          <input type="text" x-model="prFeatureName"
+            placeholder="e.g. user-profile-page"
+            class="input input-bordered w-full" />
+        </label>
+      </div>
+      <div class="modal-action">
+        <button @click="showPrModal = false" class="btn btn-ghost">Cancel</button>
+        <button @click="createPR()" class="btn btn-success gap-2"
+          :disabled="prLoading">
+          <span class="loading loading-spinner loading-xs" x-show="prLoading"></span>
+          Create PR
+        </button>
+      </div>
     </div>
-    <div class="modal-action">
-      <button @click="$root.__x.$data.showPrModal = false" class="btn btn-ghost">Cancel</button>
-      <button @click="$root.__x.$data.createPR()" class="btn btn-success gap-2"
-        :disabled="$root.__x.$data.prLoading">
-        <span class="loading loading-spinner loading-xs" x-show="$root.__x.$data.prLoading"></span>
-        Create PR
-      </button>
-    </div>
-  </div>
-  <div class="modal-backdrop" @click="$root.__x.$data.showPrModal = false"></div>
-</dialog>
+    <div class="modal-backdrop" @click="showPrModal = false"></div>
+  </dialog>
+</div>
 
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
+window.authToken = {{ auth_token | tojson }};
 // Minimal Markdown renderer (no heavy libraries)
 function renderMarkdown(text) {
   if (!text) return '';
@@ -402,8 +403,7 @@ function dashboard() {
     },
 
     token() {
-      const m = document.cookie.match(/access_token=([^;]+)/);
-      return m ? m[1] : '';
+      return window.authToken || '';
     },
 
     async api(path, opts = {}) {
