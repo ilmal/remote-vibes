@@ -24,6 +24,7 @@ class AgentSessionRead(BaseModel):
     container_name: Optional[str] = None
     code_server_port: Optional[int] = None
     agent_api_port: Optional[int] = None
+    dev_server_port: Optional[int] = None
     status: str
     tunnel_url: Optional[str] = None
     tunnel_active: bool
@@ -42,6 +43,7 @@ class AgentSessionUpdate(BaseModel):
     container_name: Optional[str] = None
     code_server_port: Optional[int] = None
     agent_api_port: Optional[int] = None
+    dev_server_port: Optional[int] = None
     tunnel_url: Optional[str] = None
     tunnel_active: Optional[bool] = None
     last_pr_url: Optional[str] = None

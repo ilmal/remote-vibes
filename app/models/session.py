@@ -35,6 +35,7 @@ class AgentSession(Base):
     container_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     code_server_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agent_api_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dev_server_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Status: pending | running | stopped | error
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)

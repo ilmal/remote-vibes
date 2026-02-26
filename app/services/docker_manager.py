@@ -74,6 +74,7 @@ class DockerManager:
     ) -> dict:
         code_server_port = _find_free_port(start=settings.agent_base_port)
         agent_api_port = _find_free_port(start=code_server_port + 1)
+        dev_server_port = _find_free_port(start=agent_api_port + 1)
 
         container_name = f"rv-agent-{session_id[:8]}"
         network_name = f"rv-net-{session_id[:8]}"
@@ -98,6 +99,7 @@ class DockerManager:
             "REPO_NAME": repo_name,
             "SESSION_ID": session_id,
             "BRANCH": branch,
+            "DEV_SERVER_PORT": "5000",  # internal port – mapped to dev_server_port on host
         }
         if cloudflare_token:
             env["CLOUDFLARE_TUNNEL_TOKEN"] = cloudflare_token
@@ -117,6 +119,7 @@ class DockerManager:
             ports={
                 "8080/tcp": code_server_port,
                 "3000/tcp": agent_api_port,
+                "5000/tcp": dev_server_port,
             },
             network=network_name,
             labels={
@@ -146,6 +149,7 @@ class DockerManager:
             "network_name": network_name,
             "code_server_port": code_server_port,
             "agent_api_port": agent_api_port,
+            "dev_server_port": dev_server_port,
         }
 
     async def stop_container(self, container_id: str) -> None:

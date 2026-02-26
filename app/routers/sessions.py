@@ -65,6 +65,7 @@ async def start_session(
             container_name=container_info["container_name"],
             code_server_port=container_info["code_server_port"],
             agent_api_port=container_info["agent_api_port"],
+            dev_server_port=container_info["dev_server_port"],
         )
         session = await crud.update_session(db, session, update)
     except Exception as exc:
