@@ -78,3 +78,8 @@ networks:
   main:
     driver: bridge
     name: rv_main
+    driver_opts:
+      com.docker.network.driver.mtu: "1260"
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

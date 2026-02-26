@@ -14,9 +14,9 @@ log = structlog.get_logger(__name__)
 
 
 class GitHubService:
-    def __init__(self, pat: str) -> None:
+    def __init__(self, pat: str, timeout: int = 15) -> None:
         self._pat = pat
-        self._gh = Github(auth=Auth.Token(pat))
+        self._gh = Github(auth=Auth.Token(pat), timeout=timeout)
 
     # ── Auth check ────────────────────────────────────────────────────────────
 
