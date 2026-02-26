@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path as FPath
+from fastapi import APIRouter, Depends, HTTPException, Path as FPath, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
@@ -96,12 +96,12 @@ async def get_session_status(
     return {"session_id": str(session_id), "db_status": session.status, "container_status": live_status}
 
 
-@router.delete("/{session_id}", status_code=204)
+@router.delete("/{session_id}")
 async def stop_session(
     session_id: uuid.UUID = FPath(...),
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     session = await crud.get_session(db, session_id)
     if not session or session.user_id != user.id:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -116,3 +116,4 @@ async def stop_session(
             structlog.get_logger().warning("stop_container_error", error=str(exc))
 
     await crud.stop_session(db, session)
+    return Response(status_code=204)

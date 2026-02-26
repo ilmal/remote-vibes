@@ -6,6 +6,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.security import OAuth2PasswordRequestForm
+
+from app.auth import UserManager, get_jwt_strategy, get_user_manager
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -36,7 +39,8 @@ async def login_page(request: Request):
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+    # Registration is closed – only admin account is allowed
+    return RedirectResponse("/login")
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -56,30 +60,29 @@ async def settings_page(request: Request):
 
 
 @router.post("/auth/web/login")
-async def web_login(request: Request):
-    """Handle login form, set cookie, redirect to dashboard."""
-    import httpx
-
+async def web_login(
+    request: Request,
+    user_manager: UserManager = Depends(get_user_manager),
+):
+    """Handle login form – authenticate directly via fastapi-users (no internal HTTP call)."""
     form = await request.form()
-    email = form.get("email", "")
-    password = form.get("password", "")
+    email = str(form.get("email", ""))
+    password = str(form.get("password", ""))
 
-    # Call the JWT login endpoint internally
-    async with httpx.AsyncClient(base_url=str(request.base_url)) as client:
-        resp = await client.post(
-            "/auth/jwt/login",
-            data={"username": email, "password": password},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+    # Authenticate directly through fastapi-users
+    credentials = OAuth2PasswordRequestForm(username=email, password=password, scope="")
+    user = await user_manager.authenticate(credentials)
 
-    if resp.status_code != 200:
+    if user is None or not user.is_active:
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "error": "Invalid email or password."},
             status_code=401,
         )
 
-    token = resp.json().get("access_token", "")
+    strategy = get_jwt_strategy()
+    token = await strategy.write_token(user)
+
     response = RedirectResponse("/dashboard", status_code=303)
     response.set_cookie(
         "access_token",

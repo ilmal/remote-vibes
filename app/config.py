@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     cloudflare_tunnel_token: str = ""
 
     # ── Whisper / Voice ───────────────────────────────────────────────────────
-    whisper_model: str = "large-v3-turbo"
+    whisper_model: str = "distil-large-v3"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     whisper_models_dir: str = "/app/whisper_models"
@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     agent_image: str = "rv_agent:latest"
     agent_base_port: int = 9000
     repos_dir: str = "/app/repos"
+
+    # ── Admin account (auto-created on startup) ───────────────────────────────
+    admin_email: str = Field(default="admin@example.com", description="Admin account email")
+    admin_password: str = Field(default="", description="Admin account password (required to auto-create admin)")
 
     @field_validator("database_url_sync", mode="before")
     @classmethod

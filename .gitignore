@@ -44,3 +44,11 @@ app/static/css/output.css
 whisper_models/
 repos/
 *.log
+
+# Pre-downloaded build assets (large binaries – do not commit)
+wheels/
+agent-wheels/
+*.deb
+*.whl
+cloudflared-linux-amd64
+githubcli-archive-keyring.gpg

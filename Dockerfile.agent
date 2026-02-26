@@ -25,27 +25,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+# Use pre-downloaded GPG key (curl to cli.github.com may fail in BuildKit network)
+COPY githubcli-archive-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
         > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install code-server
-RUN curl -fsSL https://code-server.dev/install.sh | sh
+# Install code-server from pre-downloaded deb (124MB self-contained binary, no deps)
+COPY code-server_amd64.deb /tmp/code-server.deb
+RUN dpkg -i /tmp/code-server.deb && rm /tmp/code-server.deb
 
 # ---- Python venv for agent ----
 RUN python3.11 -m venv /opt/agent-venv
 ENV PATH="/opt/agent-venv/bin:$PATH"
 
 COPY agent_requirements.txt /tmp/agent_requirements.txt
-RUN pip install --upgrade pip && pip install -r /tmp/agent_requirements.txt
+# Copy pre-downloaded wheels (offline install - no network needed in BuildKit)
+COPY agent-wheels/ /agent-wheels/
+RUN pip install --upgrade pip -q && \
+    pip install --no-index --find-links /agent-wheels -r /tmp/agent_requirements.txt
 
 # ---- cloudflared ----
-RUN curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-        -o /usr/local/bin/cloudflared \
-    && chmod +x /usr/local/bin/cloudflared
+# Pre-downloaded on host (github.com releases not reachable from Docker build network)
+COPY cloudflared-linux-amd64 /usr/local/bin/cloudflared
+RUN chmod +x /usr/local/bin/cloudflared
 
 # ---- Non-root user ----
 RUN groupadd -r agent && useradd -r -g agent -d /home/agent -m -s /bin/bash agent

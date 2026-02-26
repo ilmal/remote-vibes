@@ -1,6 +1,8 @@
 # ======================================================
 # Dockerfile.main – Main FastAPI application
 # ======================================================
+
+# ---- runtime base: only lightweight system deps ----
 FROM python:3.11-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,21 +10,31 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system deps (ffmpeg for audio, curl for health, docker CLI)
+# Runtime-only system deps (no build-essential, no docker daemon)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
         curl \
         ffmpeg \
         git \
-        libpq-dev \
-        docker.io \
+        libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- builder ----
-FROM base AS builder
+# Copy just the Docker CLI binary from the official small alpine image (~5 MB)
+# instead of installing the full docker.io apt package (~280 MB of daemon+deps)
+COPY --from=docker:24-cli /usr/local/bin/docker /usr/local/bin/docker
+
+# ---- builder: copy pre-downloaded wheels and install offline ----
+FROM python:3.11-slim-bookworm AS builder
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+# libpq-dev needed for psycopg2-binary compilation (but wheel is pre-built so only runtime libpq5 needed)
+# build-essential for any packages that fall back to source; most are pre-built wheels
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt
+# Copy pre-downloaded wheels (offline install - no network needed in BuildKit)
+COPY wheels/ /wheels/
+RUN pip install --no-index --find-links /wheels --prefix=/install -r requirements.txt
 
 # ---- runtime ----
 FROM base AS runtime

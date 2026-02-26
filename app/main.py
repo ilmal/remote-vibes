@@ -41,8 +41,11 @@ async def lifespan(app: FastAPI):
     Path(settings.whisper_models_dir).mkdir(parents=True, exist_ok=True)
     Path(settings.repos_dir).mkdir(parents=True, exist_ok=True)
 
-    # Pre-load whisper model in background (non-blocking)
+    # Auto-create admin user if not present
     import asyncio
+    asyncio.create_task(_ensure_admin())
+
+    # Pre-load whisper model in background (non-blocking)
     asyncio.create_task(_preload_whisper())
 
     yield
@@ -54,6 +57,38 @@ async def _preload_whisper():
         await ensure_model_loaded()
     except Exception as exc:
         log.error("whisper_preload_failed", error=str(exc))
+
+
+async def _ensure_admin():
+    """Create the admin superuser on startup if it doesn't already exist."""
+    if not settings.admin_password:
+        log.warning("admin_skip", reason="ADMIN_PASSWORD not set in env")
+        return
+    from app.database import async_session_factory
+    from app.dependencies import get_user_db
+    from app.auth import UserManager
+    from fastapi_users.exceptions import UserAlreadyExists
+    from app.schemas.user import UserCreate
+
+    async with async_session_factory() as session:
+        async for user_db in get_user_db(session):
+            manager = UserManager(user_db)
+            try:
+                await manager.create(
+                    UserCreate(
+                        email=settings.admin_email,
+                        password=settings.admin_password,
+                        is_superuser=True,
+                        is_active=True,
+                        is_verified=True,
+                    ),
+                    safe=False,
+                )
+                log.info("admin_created", email=settings.admin_email)
+            except UserAlreadyExists:
+                pass  # already set up
+            except Exception as exc:
+                log.error("admin_create_failed", error=str(exc))
 
 
 # ── App factory ───────────────────────────────────────────────────────────────
