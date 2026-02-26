@@ -11,6 +11,7 @@ MOCK_CONTAINER = {
     "network_name": "rv-net-deadbeef",
     "code_server_port": 9000,
     "agent_api_port": 9001,
+    "dev_server_port": 9002,
 }
 SESSION_PAYLOAD = {"repo_full_name": "user/repo", "repo_name": "repo", "branch": "main"}
 

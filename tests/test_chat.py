@@ -11,6 +11,7 @@ MOCK_CONTAINER = {
     "network_name": "rv-net-chat",
     "code_server_port": 9100,
     "agent_api_port": 9101,
+    "dev_server_port": 9102,
 }
 SESSION_PAYLOAD = {"repo_full_name": "user/chatrepo", "repo_name": "chatrepo", "branch": "main"}
 
