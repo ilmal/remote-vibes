@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from docker.errors import DockerException
 from fastapi import APIRouter, Depends, HTTPException, Path as FPath, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +41,15 @@ async def start_session(
 
     session = await crud.create_session(db, user.id, body)
 
-    dm = get_docker_manager()
+    try:
+        dm = get_docker_manager()
+    except DockerException as exc:
+        await crud.update_session(db, session, AgentSessionUpdate(status="error"))
+        raise HTTPException(
+            status_code=503,
+            detail="Cannot connect to Docker daemon. Check that the Docker socket is mounted and the app has permission.",
+        )
+
     try:
         container_info = await dm.start_agent_container(
             session_id=str(session.id),
