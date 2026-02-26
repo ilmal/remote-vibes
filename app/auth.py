@@ -9,6 +9,7 @@ from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
 from fastapi_users.authentication import (
     AuthenticationBackend,
     BearerTransport,
+    CookieTransport,
     JWTStrategy,
 )
 
@@ -48,6 +49,14 @@ async def get_user_manager(user_db=Depends(get_user_db)):
 # ── JWT transport + strategy ──────────────────────────────────────────────────
 bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
 
+# Cookie transport — lets current_active_user read the httponly cookie set at login
+cookie_transport = CookieTransport(
+    cookie_name="access_token",
+    cookie_max_age=7 * 24 * 3600,
+    cookie_httponly=True,
+    cookie_samesite="lax",
+)
+
 
 def get_jwt_strategy() -> JWTStrategy:
     return JWTStrategy(
@@ -62,6 +71,13 @@ auth_backend = AuthenticationBackend(
     get_strategy=get_jwt_strategy,
 )
 
-fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
+cookie_auth_backend = AuthenticationBackend(
+    name="cookie",
+    transport=cookie_transport,
+    get_strategy=get_jwt_strategy,
+)
+
+# Both backends: Bearer for API clients, Cookie for browser sessions
+fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend, cookie_auth_backend])
 
 current_active_user = fastapi_users.current_user(active=True)
