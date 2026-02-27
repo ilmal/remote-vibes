@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     agent_image: str = "rv_agent:latest"
     agent_base_port: int = 9000
     repos_dir: str = "/app/repos"
+    # Named Docker volume that holds cloned repos (matches compose volume name).
+    # Agent containers mount this volume at /workspace so they share the same repos.
+    repos_volume: str = "remote-vibes_repos_data"
     docker_main_network: str = "rv_main"  # main Docker network name to connect agents to
 
     # ── Admin account (auto-created on startup) ───────────────────────────────

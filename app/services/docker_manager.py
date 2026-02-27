@@ -91,8 +91,8 @@ class DockerManager:
             if "already exists" not in str(e):
                 raise
 
-        repos_dir = Path(settings.repos_dir)
-        repos_dir.mkdir(parents=True, exist_ok=True)
+        # repos_dir only needed locally for mkdir; the agent gets the named volume.
+        Path(settings.repos_dir).mkdir(parents=True, exist_ok=True)
 
         env = {
             "GITHUB_PAT": github_pat,
@@ -113,7 +113,7 @@ class DockerManager:
             user="root",
             environment=env,
             volumes={
-                str(repos_dir): {
+                settings.repos_volume: {
                     "bind": "/workspace",
                     "mode": "rw",
                 },
