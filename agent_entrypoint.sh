@@ -249,7 +249,7 @@ PROXYEOF
     exec python3 /tmp/rv-proxy.py "${host_gw}" "${ui_port}" "${port}"
 }
 
-
+_try_flask() {
     local port="${1}"
     local dir="${2}"
     # Try common Flask entry patterns (factory or plain app)
