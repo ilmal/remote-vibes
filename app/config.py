@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     agent_image: str = "rv_agent:latest"
     agent_base_port: int = 9000
     repos_dir: str = "/app/repos"
+    docker_main_network: str = "rv_main"  # main Docker network name to connect agents to
 
     # ── Admin account (auto-created on startup) ───────────────────────────────
     admin_email: str = Field(default="admin@example.com", description="Admin account email")

@@ -75,11 +75,45 @@ fi
 # ── Auto-detect and start dev server ─────────────────────────────────────────
 DEV_PORT="${DEV_SERVER_PORT:-5000}"
 
+_port_open() {
+    timeout 2 bash -c "echo >/dev/tcp/localhost/${1}" 2>/dev/null
+}
+
+_fallback_server() {
+    local port="${1}"
+    local dir="${2}"
+    echo "[dev] ⚠ Starting fallback static server on :${port} (serving ${dir})"
+    cd "${dir}"
+    python3 -m http.server "${port}" --bind 0.0.0.0
+}
+
+_try_flask() {
+    local port="${1}"
+    local dir="${2}"
+    # Try common Flask entry patterns (factory or plain app)
+    for entry in "central_app.admin_api:create_app()" \
+                 "app:create_app()" "application:create_app()" \
+                 "central_app.admin_api:app" "central_app:app" \
+                 "app:app" "application:app" "wsgi:app" "main:app"; do
+        echo "[dev] Trying FLASK_APP=${entry}..."
+        FLASK_APP="${entry}" flask run --host 0.0.0.0 --port "${port}" 2>&1 &
+        local fpid=$!
+        sleep 5
+        if _port_open "${port}"; then
+            echo "[dev] Flask started with FLASK_APP=${entry} (pid ${fpid})"
+            wait "${fpid}"
+            return 0
+        fi
+        kill "${fpid}" 2>/dev/null; wait "${fpid}" 2>/dev/null
+    done
+    return 1
+}
+
 _start_dev_server() {
     local dir="${WORKSPACE_DIR}"
     local port="${DEV_PORT}"
-    # Give clone a moment to finish
-    sleep 3
+    # Give clone a moment to finish, allow code-server to start first
+    sleep 5
 
     echo "[dev] Detecting project type in ${dir}..."
 
@@ -95,8 +129,8 @@ _start_dev_server() {
             PM="npm"
         fi
 
-        echo "[dev] Installing dependencies with ${PM}..."
-        ${PM} install --legacy-peer-deps 2>&1 | tail -3 || true
+        echo "[dev] Installing JS dependencies with ${PM}..."
+        timeout 180 ${PM} install --legacy-peer-deps 2>&1 | tail -5 || true
 
         # Detect framework
         if [ -f "next.config.js" ] || [ -f "next.config.ts" ] || [ -f "next.config.mjs" ]; then
@@ -104,54 +138,59 @@ _start_dev_server() {
             PORT=${port} ${PM} run dev
 
         elif [ -f "vite.config.js" ] || [ -f "vite.config.ts" ] || [ -f "vite.config.mjs" ]; then
-            echo "[dev] Vite detected → ${PM} run dev --port ${port} --host 0.0.0.0"
+            echo "[dev] Vite detected → ${PM} run dev --port ${port} --host"
             ${PM} run dev -- --port ${port} --host 0.0.0.0
 
         elif jq -e '.scripts.dev' package.json > /dev/null 2>&1; then
-            echo "[dev] npm dev script detected → PORT=${port} ${PM} run dev"
+            echo "[dev] npm dev script → PORT=${port} ${PM} run dev"
             PORT=${port} ${PM} run dev
 
         elif jq -e '.scripts.start' package.json > /dev/null 2>&1; then
-            echo "[dev] npm start script detected → PORT=${port} ${PM} start"
+            echo "[dev] npm start script → PORT=${port} ${PM} start"
             PORT=${port} ${PM} start
 
         else
-            echo "[dev] No recognized start script found in package.json"
+            echo "[dev] No recognized npm start script; falling back to static server"
+            _fallback_server "${port}" "${dir}"
         fi
 
     elif [ -f "${dir}/manage.py" ]; then
         cd "${dir}"
         echo "[dev] Django detected → installing deps + runserver :${port}"
-        [ -f requirements.txt ] && pip install -q -r requirements.txt 2>/dev/null || true
+        [ -f requirements.txt ] && timeout 120 pip install -q -r requirements.txt 2>&1 | tail -3 || true
         python manage.py runserver "0.0.0.0:${port}"
 
     elif [ -f "${dir}/pyproject.toml" ] || [ -f "${dir}/requirements.txt" ]; then
         cd "${dir}"
         REQ="${dir}/requirements.txt"
         if [ -f "${dir}/pyproject.toml" ]; then
-            echo "[dev] Python project (pyproject.toml) → pip install -e ."
-            pip install -q -e . 2>/dev/null || true
+            echo "[dev] Python project (pyproject.toml) → pip install -e . (timeout 120s)"
+            timeout 120 pip install -q -e . 2>&1 | tail -3 || true
         else
-            pip install -q -r "${REQ}" 2>/dev/null || true
+            echo "[dev] Python project → pip install -r requirements.txt (timeout 120s)"
+            timeout 120 pip install -q -r "${REQ}" 2>&1 | tail -5 || true
         fi
 
         # Detect ASGI/WSGI framework
         if grep -rqi "fastapi\|uvicorn" "${REQ}" "${dir}/pyproject.toml" 2>/dev/null; then
-            echo "[dev] FastAPI detected → uvicorn on :${port}"
+            echo "[dev] FastAPI/uvicorn detected → uvicorn on :${port}"
             uvicorn main:app --host 0.0.0.0 --port ${port} --reload 2>/dev/null || \
             uvicorn app.main:app --host 0.0.0.0 --port ${port} --reload 2>/dev/null || \
-            uvicorn app:app --host 0.0.0.0 --port ${port} --reload
+            uvicorn app:app --host 0.0.0.0 --port ${port} --reload 2>/dev/null || \
+            _fallback_server "${port}" "${dir}"
 
         elif grep -rqi "flask" "${REQ}" "${dir}/pyproject.toml" 2>/dev/null; then
-            echo "[dev] Flask detected → flask run :${port}"
-            FLASK_APP="${dir}" flask run --host 0.0.0.0 --port ${port}
+            echo "[dev] Flask detected → scanning entry points"
+            _try_flask "${port}" "${dir}" || _fallback_server "${port}" "${dir}"
 
         else
-            echo "[dev] Python project – no recognized web framework. Start manually."
+            echo "[dev] Python project – no web framework detected; using static server"
+            _fallback_server "${port}" "${dir}"
         fi
 
     else
-        echo "[dev] Could not detect project type – no package.json or requirements.txt found."
+        echo "[dev] No package.json or requirements.txt; using static server"
+        _fallback_server "${port}" "${dir}"
     fi
 }
 

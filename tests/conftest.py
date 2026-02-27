@@ -1,4 +1,8 @@
-"""Shared pytest fixtures for all test modules."""
+"""Shared pytest fixtures for all test modules.
+
+Unit-test fixtures (SQLAlchemy, ASGI client) are imported lazily so that
+the e2e test suite can load this conftest without needing the full app stack.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -7,12 +11,16 @@ from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.main import app
-from app.dependencies import get_db
-from app.models.base import Base
+try:
+    from httpx import AsyncClient, ASGITransport
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from app.main import app
+    from app.dependencies import get_db
+    from app.models.base import Base
+    _UNIT_DEPS_AVAILABLE = True
+except ImportError:
+    _UNIT_DEPS_AVAILABLE = False
 
 # ── Event loop (session-scoped) ───────────────────────────────────────────────
 @pytest.fixture(scope="session")

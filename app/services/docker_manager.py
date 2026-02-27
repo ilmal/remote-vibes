@@ -145,6 +145,16 @@ class DockerManager:
             agent_api_port=agent_api_port,
         )
 
+        # Connect the agent to rv_main so rv_main FastAPI can reach it by
+        # container name without hairpin-NAT issues (host-published ports can't
+        # be reached from within other containers via host gateway on Linux).
+        try:
+            main_net = self._client.networks.get(settings.docker_main_network)
+            main_net.connect(container.id, aliases=[container_name])
+            log.info("agent_joined_main_net", container=container_name)
+        except Exception as exc:
+            log.warning("agent_main_net_join_failed", error=str(exc))
+
         return {
             "container_id": container.id,
             "container_name": container_name,
