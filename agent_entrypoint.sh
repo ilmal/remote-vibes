@@ -116,6 +116,7 @@ with open('docker-compose.yml') as f:
     c = yaml.safe_load(f)
 
 override = {'services': {}}
+host_mode_svcs = []
 
 for svc_name, svc in (c.get('services') or {}).items():
     s = {}
@@ -134,10 +135,13 @@ for svc_name, svc in (c.get('services') or {}).items():
     if changed:
         s['volumes'] = new_vols
 
-    # Convert network_mode:host → bridge so services can resolve each other
+    # For network_mode:host services: record them for post-startup alias connect
+    # (we do NOT change network_mode in the override — Compose merge semantics
+    #  for network_mode are unreliable; we handle this via docker network connect)
     if svc.get('network_mode') == 'host':
-        s['network_mode'] = None
-        s['extra_hosts'] = []
+        host_mode_svcs.append(svc_name)
+        # Fix any 127.0.0.1 references in env so the service can also reach
+        # sibling containers once we connect it to the project network
         env = dict(svc.get('environment') or {})
         changed_env = False
         for k, v in list(env.items()):
@@ -154,6 +158,10 @@ for svc_name, svc in (c.get('services') or {}).items():
 
 with open('docker-compose.override.yml', 'w') as f:
     yaml.dump(override, f, default_flow_style=False)
+
+# Write services that need force-recreation (were network_mode:host)
+with open('/tmp/rv-recreate-svcs.txt', 'w') as f:
+    f.write(' '.join(host_mode_svcs))
 
 print('[dev] docker-compose.override.yml written')
 PATCHEOF
@@ -192,6 +200,25 @@ PATCHEOF
         timeout 300 docker compose build 2>&1 | tail -10 || true
         docker compose up -d --no-build 2>&1 | tail -20 || true
     }
+
+    # Connect host-network services to the compose network with a service-name alias
+    # so that other containers can reach them by DNS (e.g. admin-frontend → admin:8080)
+    local host_svcs
+    host_svcs=$(cat /tmp/rv-recreate-svcs.txt 2>/dev/null || echo "")
+    if [ -n "${host_svcs}" ]; then
+        local proj_net
+        proj_net="$(basename "${dir}")_default"
+        for svc_name in ${host_svcs}; do
+            local cname
+            cname=$(docker compose ps --format '{{.Name}}' -- "${svc_name}" 2>/dev/null | head -1)
+            if [ -n "${cname}" ]; then
+                echo "[dev] Connecting ${cname} to ${proj_net} as alias '${svc_name}'…"
+                docker network connect --alias "${svc_name}" "${proj_net}" "${cname}" 2>/dev/null \
+                    && echo "[dev] ${svc_name} now on ${proj_net}" \
+                    || echo "[dev] ${svc_name} already connected (ok)"
+            fi
+        done
+    fi
 
     # ── Step 3: join compose network for direct container-to-container routing
     sleep 8
