@@ -21,8 +21,13 @@ chmod 600 ~/.git-credentials
 echo "${GITHUB_PAT}" | gh auth login --with-token 2>/dev/null || true
 echo "[entrypoint] gh CLI authenticated"
 
-# ── Clone repo if not already present ───────────────────────────────────────
-if [ ! -d "${WORKSPACE_DIR}/.git" ]; then
+# ── Clone repo if not already present (or if prior clone failed and left empty repo) ─────
+if [ ! -d "${WORKSPACE_DIR}/.git" ] || ! git -C "${WORKSPACE_DIR}" rev-parse HEAD &>/dev/null; then
+    if [ -d "${WORKSPACE_DIR}/.git" ]; then
+        echo "[entrypoint] Stale/empty repo detected – removing and re-cloning..."
+        rm -rf "${WORKSPACE_DIR}"
+        mkdir -p "${WORKSPACE_DIR}"
+    fi
     echo "[entrypoint] Cloning ${REPO_FULL_NAME:-unknown}..."
     git clone "https://x-access-token:${GITHUB_PAT}@github.com/${REPO_FULL_NAME}" "${WORKSPACE_DIR}" || {
         echo "[entrypoint] Clone failed, initialising empty repo"

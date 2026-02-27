@@ -33,7 +33,7 @@ async def stream_chat(
     if session.status != "running" or not session.agent_api_port:
         raise HTTPException(status_code=409, detail="Session is not running.")
 
-    client = get_agent_client(host="localhost", port=session.agent_api_port)
+    client = get_agent_client(host="host.docker.internal", port=session.agent_api_port)
 
     async def event_stream():
         try:
@@ -72,7 +72,7 @@ async def create_pr(
     if session.status != "running" or not session.agent_api_port:
         raise HTTPException(status_code=409, detail="Session is not running.")
 
-    client = get_agent_client(host="localhost", port=session.agent_api_port)
+    client = get_agent_client(host="host.docker.internal", port=session.agent_api_port)
     try:
         result = await client.trigger_pr(feature_name=feature_name, session_id=str(session_id))
         # Persist PR info

@@ -50,6 +50,8 @@ services:
               "--reload", "--reload-dir", "/app/app", "--log-level", "info"]
     ports:
       - "8001:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"           # reach published agent ports on Docker host
     volumes:
       - ./app:/app/app                              # live source reload
       - ./alembic:/app/alembic                      # migration files
