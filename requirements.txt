@@ -47,6 +47,9 @@ httpx==0.27.0
 
 # ── Testing utilities (also needed in dev) ────────────────────────────────────
 aiosqlite==0.20.0
+pytest==9.0.2
+pytest-asyncio==1.3.0
+anyio[trio]==4.7.0
 
 # ── Logging / Observability ───────────────────────────────────────────────────
 structlog==24.2.0

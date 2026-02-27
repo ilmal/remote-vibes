@@ -92,6 +92,18 @@ class DockerManager:
 
         repos_dir = Path(settings.repos_dir)
         repos_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            repos_dir.chmod(0o777)
+        except PermissionError:
+            pass
+
+        # Pre-create repo-specific dir so non-root agent user can write to it
+        workspace_dir = repos_dir / repo_name
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            workspace_dir.chmod(0o777)
+        except PermissionError:
+            pass
 
         env = {
             "GITHUB_PAT": github_pat,
@@ -109,9 +121,10 @@ class DockerManager:
             name=container_name,
             detach=True,
             remove=False,
+            user="root",
             environment=env,
             volumes={
-                str(repos_dir): {
+                str(workspace_dir): {
                     "bind": "/workspace",
                     "mode": "rw",
                 },
@@ -185,6 +198,17 @@ class DockerManager:
             return c.status  # running | exited | paused | ...
         except docker.errors.NotFound:
             return "not_found"
+
+    def get_container_logs(self, container_id: str, tail: int = 300) -> str:
+        """Return recent logs from a container as a plain string."""
+        try:
+            c = self._client.containers.get(container_id)
+            raw = c.logs(tail=tail, timestamps=True, stream=False)
+            return raw.decode("utf-8", errors="replace")
+        except docker.errors.NotFound:
+            return "(container not found)"
+        except Exception as exc:
+            return f"(error fetching logs: {exc})"
 
     def list_managed_containers(self) -> list[dict]:
         containers = self._client.containers.list(

@@ -215,6 +215,14 @@
               Dev Server
             </a>
           </template>
+          <!-- Logs button -->
+          <button @click="openLogs()" class="btn btn-ghost btn-xs gap-1 text-warning">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Logs
+          </button>
           <!-- PR button -->
           <button @click="showPrModal = true" class="btn btn-outline btn-xs btn-success gap-1">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -356,6 +364,26 @@
     </div>
     <div class="modal-backdrop" @click="showPrModal = false"></div>
   </dialog>
+
+  <!-- ── Logs Modal ────────────────────────────────────────────────────────── -->
+  <dialog class="modal" :class="showLogsModal && 'modal-open'">
+    <div class="modal-box max-w-4xl w-full">
+      <div class="flex items-center gap-3 mb-3">
+        <h3 class="font-bold text-lg flex-1">Container Logs</h3>
+        <span class="badge text-xs" x-show="logsStatus"
+          :class="logsStatus === 'running' ? 'badge-success' : logsStatus === 'exited' ? 'badge-error' : 'badge-warning'"
+          x-text="logsStatus"></span>
+        <span class="loading loading-spinner loading-xs" x-show="logsLoading"></span>
+      </div>
+      <pre class="bg-base-300 rounded p-3 text-xs overflow-auto h-96 whitespace-pre-wrap font-mono"
+           x-ref="logsContent" x-text="sessionLogs || '(loading...)'" style="direction:ltr"></pre>
+      <div class="modal-action">
+        <button @click="fetchLogs()" class="btn btn-ghost btn-sm" :disabled="logsLoading">Refresh</button>
+        <button @click="closeLogs()" class="btn btn-sm">Close</button>
+      </div>
+    </div>
+    <div class="modal-backdrop" @click="closeLogs()"></div>
+  </dialog>
 </div>
 
 {% endblock %}
@@ -399,6 +427,11 @@ function dashboard() {
     showPrModal: false,
     prFeatureName: '',
     prLoading: false,
+    showLogsModal: false,
+    sessionLogs: '',
+    logsStatus: '',
+    logsLoading: false,
+    logsInterval: null,
     mediaRecorder: null,
     audioChunks: [],
 
@@ -495,6 +528,37 @@ function dashboard() {
         this.activeSessions = this.activeSessions.filter(s => s.id !== id);
         if (this.activeSession?.id === id) { this.activeSession = null; this.messages = []; }
       } catch(e) {}
+    },
+
+    async openLogs() {
+      this.showLogsModal = true;
+      this.sessionLogs = '';
+      await this.fetchLogs();
+      if (this.logsInterval) clearInterval(this.logsInterval);
+      this.logsInterval = setInterval(() => this.fetchLogs(), 3000);
+    },
+
+    async fetchLogs() {
+      if (!this.activeSession?.id) return;
+      this.logsLoading = true;
+      try {
+        const r = await this.api(`/api/sessions/${this.activeSession.id}/logs?tail=300`);
+        if (r.ok) {
+          const d = await r.json();
+          this.sessionLogs = d.logs || '(no output yet)';
+          this.logsStatus = d.container_status || '';
+          this.$nextTick(() => {
+            const el = this.$refs.logsContent;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+      } catch(e) { this.sessionLogs = '(error loading logs)'; }
+      finally { this.logsLoading = false; }
+    },
+
+    closeLogs() {
+      this.showLogsModal = false;
+      if (this.logsInterval) { clearInterval(this.logsInterval); this.logsInterval = null; }
     },
 
     async sendMessage() {

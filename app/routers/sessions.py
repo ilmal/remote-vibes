@@ -106,6 +106,24 @@ async def get_session_status(
     return {"session_id": str(session_id), "db_status": session.status, "container_status": live_status}
 
 
+@router.get("/{session_id}/logs")
+async def get_session_logs(
+    session_id: uuid.UUID = FPath(...),
+    tail: int = 300,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    session = await crud.get_session(db, session_id)
+    if not session or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    if not session.container_id:
+        return {"logs": "No container associated with this session.", "container_status": "none"}
+    dm = get_docker_manager()
+    logs = dm.get_container_logs(session.container_id, tail=tail)
+    status = dm.get_container_status(session.container_id)
+    return {"logs": logs, "container_status": status}
+
+
 @router.delete("/{session_id}")
 async def stop_session(
     session_id: uuid.UUID = FPath(...),
