@@ -172,49 +172,93 @@ PATCHEOF
     local repo_host_path="${vol_root}/${REPO_NAME}"
     echo "[dev] Repo host path: ${repo_host_path}"
 
+    # Copy .env.example → .env if missing (common in docker-compose projects)
+    if [ ! -f "${dir}/.env" ] && [ -f "${dir}/.env.example" ]; then
+        echo "[dev] .env not found — copying .env.example → .env"
+        cp "${dir}/.env.example" "${dir}/.env"
+    fi
+
     python3 /tmp/rv-compose-patch.py "${repo_host_path}" || {
         echo "[dev] ⚠ Patch failed, falling back to static server"
         _fallback_server "${port}" "${dir}"
         return
     }
 
-    # ── Step 2: build + start ───────────────────────────────────────────────
-    echo "[dev] Building compose images…"
-    docker compose build 2>&1 | tail -15 || true
-
+    # ── Step 2: start stack (use cached images; build only if missing) ────────
     echo "[dev] Starting compose stack…"
-    docker compose up -d 2>&1 | tail -20 || true
+    # --no-build: use existing images; if an image is missing, fall back to build with timeout
+    docker compose up -d --no-build 2>&1 | tail -20 || {
+        echo "[dev] Images missing, building with 5-min timeout…"
+        timeout 300 docker compose build 2>&1 | tail -10 || true
+        docker compose up -d --no-build 2>&1 | tail -20 || true
+    }
 
-    # ── Step 3: detect web UI port ──────────────────────────────────────────
+    # ── Step 3: join compose network for direct container-to-container routing
     sleep 8
-    local ui_port
-    ui_port=$(docker compose ps --format '{{json .}}' 2>/dev/null | python3 -c "
-import sys, json
-SKIP = {0, 5432, 6379, 3306, 27017, 9200, 9300}
+    local proj
+    proj=$(basename "${dir}")
+    local compose_net="${proj}_default"
+    echo "[dev] Joining ${compose_net} network…"
+    docker network connect "${compose_net}" "${HOSTNAME}" 2>/dev/null \
+        && echo "[dev] Joined ${compose_net}" \
+        || echo "[dev] Already connected or failed (continuing)"
+    sleep 2
+
+    # ── Step 4: probe compose services by DNS name within the network ───────
+    echo "[dev] Probing compose services for web UI…"
+    local ui_target
+    ui_target=$(docker compose ps --format '{{json .}}' 2>/dev/null | python3 -c "
+import sys, json, socket
+
+SKIP_SVC  = {'postgres','redis','mysql','mongodb','rabbitmq',
+             'worker','scheduler','celery','cron',
+             'dummy_site','db'}
+WEB_PORTS = [5173, 3000, 8080, 8000, 4200, 4000, 80]
+
+records = []
 for line in sys.stdin:
     line = line.strip()
     if not line: continue
     try:
-        svc = json.loads(line)
-        for p in (svc.get('Publishers') or []):
-            pub = int(p.get('PublishedPort') or 0)
-            if pub and pub not in SKIP:
-                print(pub); sys.exit(0)
-    except: pass
-print(5173)
-" 2>/dev/null || echo "5173")
+        svc  = json.loads(line)
+        name = svc.get('Service', '')
+        cname = svc.get('Name', '')
+        if name and name.lower() not in SKIP_SVC:
+            records.append((name, cname))
+    except Exception:
+        pass
 
-    local host_gw
-    host_gw=$(ip route | awk '/default/ {print $3; exit}')
-    echo "[dev] Proxying agent :${port} → host ${host_gw}:${ui_port}"
+for svc_name, container_name in records:
+    for probe_port in WEB_PORTS:
+        for host in [svc_name, container_name]:
+            try:
+                s = socket.create_connection((host, probe_port), timeout=2)
+                s.close()
+                print(f'{host}:{probe_port}')
+                sys.exit(0)
+            except Exception:
+                pass
+print('fallback:0')
+" 2>/dev/null || echo "fallback:0")
 
-    # ── Step 4: TCP proxy DEV_PORT → UI port on host gateway ───────────────
+    local ui_host="${ui_target%%:*}"
+    local ui_port_num="${ui_target##*:}"
+
+    if [ "${ui_port_num}" = "0" ]; then
+        echo "[dev] No web UI found in compose network; falling back to static server"
+        _fallback_server "${port}" "${dir}"
+        return
+    fi
+
+    echo "[dev] Found web UI at ${ui_target}"
+
+    # ── Step 5: TCP proxy DEV_PORT → compose service (DNS name) ────────────
     cat > /tmp/rv-proxy.py << 'PROXYEOF'
 import sys, socket, threading
 
-host_gw  = sys.argv[1]
-ui_port  = int(sys.argv[2])
-listen   = int(sys.argv[3])
+ui_host = sys.argv[1].strip()
+ui_port = int(sys.argv[2].strip())
+listen  = int(sys.argv[3].strip())
 
 def pipe(src, dst):
     try:
@@ -230,23 +274,23 @@ def pipe(src, dst):
 
 def handle(client):
     try:
-        server = socket.create_connection((host_gw, ui_port), timeout=30)
+        server = socket.create_connection((ui_host, ui_port), timeout=30)
         threading.Thread(target=pipe, args=(client, server), daemon=True).start()
         threading.Thread(target=pipe, args=(server, client), daemon=True).start()
     except Exception as e:
-        print(f'[proxy] connect {host_gw}:{ui_port} failed: {e}', flush=True)
+        print(f'[proxy] connect {ui_host}:{ui_port} failed: {e}', flush=True)
         client.close()
 
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 srv.bind(('0.0.0.0', listen))
 srv.listen(128)
-print(f'[dev] Compose proxy :{listen} → {host_gw}:{ui_port} ready', flush=True)
+print(f'[dev] Compose proxy :{listen} → {ui_host}:{ui_port} ready', flush=True)
 while True:
     c, _ = srv.accept()
     threading.Thread(target=handle, args=(c,), daemon=True).start()
 PROXYEOF
-    exec python3 /tmp/rv-proxy.py "${host_gw}" "${ui_port}" "${port}"
+    exec python3 /tmp/rv-proxy.py "${ui_host}" "${ui_port_num}" "${port}"
 }
 
 _try_flask() {
