@@ -135,13 +135,14 @@ for svc_name, svc in (c.get('services') or {}).items():
     if changed:
         s['volumes'] = new_vols
 
-    # For network_mode:host services: record them for post-startup alias connect
-    # (we do NOT change network_mode in the override — Compose merge semantics
-    #  for network_mode are unreliable; we handle this via docker network connect)
+    # For network_mode:host services: we cannot override host mode via the
+    # compose override file (Compose v2 treats null as "keep base value").
+    # Instead, we patch docker-compose.yml directly, removing host mode so
+    # those services join the project's default bridge network naturally.
+    # We write the patched compose back in place (override still handles volumes/env).
     if svc.get('network_mode') == 'host':
         host_mode_svcs.append(svc_name)
-        # Fix any 127.0.0.1 references in env so the service can also reach
-        # sibling containers once we connect it to the project network
+        # Fix 127.0.0.1 references in env so sibling services resolve by DNS
         env = dict(svc.get('environment') or {})
         changed_env = False
         for k, v in list(env.items()):
@@ -155,6 +156,17 @@ for svc_name, svc in (c.get('services') or {}).items():
 
     if s:
         override['services'][svc_name] = s
+
+# Remove network_mode:host from the original compose file so those services
+# join the project network. Backup the original first.
+import shutil
+if host_mode_svcs:
+    shutil.copy('docker-compose.yml', 'docker-compose.yml.rv-bak')
+    for svc_name in host_mode_svcs:
+        del c['services'][svc_name]['network_mode']
+    with open('docker-compose.yml', 'w') as fw:
+        yaml.dump(c, fw, default_flow_style=False)
+    print(f'[dev] Patched docker-compose.yml: removed network_mode:host from {host_mode_svcs}')
 
 with open('docker-compose.override.yml', 'w') as f:
     yaml.dump(override, f, default_flow_style=False)
@@ -201,23 +213,15 @@ PATCHEOF
         docker compose up -d --no-build 2>&1 | tail -20 || true
     }
 
-    # Connect host-network services to the compose network with a service-name alias
-    # so that other containers can reach them by DNS (e.g. admin-frontend → admin:8080)
+    # Force-recreate the formerly host-network services: patching docker-compose.yml
+    # removes their host mode, so Compose will recreate them on the project network.
+    # This step is a safety net in case they were already running from a prior boot.
     local host_svcs
     host_svcs=$(cat /tmp/rv-recreate-svcs.txt 2>/dev/null || echo "")
     if [ -n "${host_svcs}" ]; then
-        local proj_net
-        proj_net="$(basename "${dir}")_default"
-        for svc_name in ${host_svcs}; do
-            local cname
-            cname=$(docker compose ps --format '{{.Name}}' -- "${svc_name}" 2>/dev/null | head -1)
-            if [ -n "${cname}" ]; then
-                echo "[dev] Connecting ${cname} to ${proj_net} as alias '${svc_name}'…"
-                docker network connect --alias "${svc_name}" "${proj_net}" "${cname}" 2>/dev/null \
-                    && echo "[dev] ${svc_name} now on ${proj_net}" \
-                    || echo "[dev] ${svc_name} already connected (ok)"
-            fi
-        done
+        echo "[dev] Force-recreating ex-host-network services: ${host_svcs}"
+        # shellcheck disable=SC2086
+        docker compose up -d --no-build --force-recreate ${host_svcs} 2>&1 | tail -10 || true
     fi
 
     # ── Step 3: join compose network for direct container-to-container routing
