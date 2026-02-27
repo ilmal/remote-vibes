@@ -42,6 +42,7 @@ cat > "${CODE_SERVER_CONFIG}" <<EOF
 bind-addr: 0.0.0.0:8080
 auth: none
 cert: false
+github-auth: ${GITHUB_PAT:-}
 EOF
 
 # ── Install Copilot VSIX if provided ─────────────────────────────────────────
@@ -96,7 +97,7 @@ _try_flask() {
                  "central_app.admin_api:app" "central_app:app" \
                  "app:app" "application:app" "wsgi:app" "main:app"; do
         echo "[dev] Trying FLASK_APP=${entry}..."
-        FLASK_APP="${entry}" flask run --host 0.0.0.0 --port "${port}" 2>&1 &
+        FLASK_APP="${entry}" python3 -m flask run --host 0.0.0.0 --port "${port}" 2>&1 &
         local fpid=$!
         sleep 5
         if _port_open "${port}"; then
