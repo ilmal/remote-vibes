@@ -100,7 +100,7 @@ _run_compose_dev() {
     # (docker socket uses HOST daemon, so all paths must be host-absolute)
     # Also convert network_mode:host services to bridge + fix 127.0.0.1 URLs
     cat > /tmp/rv-compose-patch.py << 'PATCHEOF'
-import sys, re
+import sys, re, os
 
 repo_host_path = sys.argv[1]  # absolute path on HOST to the repo directory
 
@@ -115,6 +115,81 @@ except ImportError:
 with open('docker-compose.yml') as f:
     c = yaml.safe_load(f)
 
+# ── Discover service-name aliases for postgres and redis ─────────────────────
+# We need these to rewrite 127.0.0.1 references to the correct DNS names.
+PG_IMAGES   = ('postgres', 'postgis', 'timescale')
+REDIS_IMAGES = ('redis', 'valkey', 'keydb')
+
+pg_svc_name    = 'postgres'   # default fallback
+redis_svc_name = 'redis'      # default fallback
+
+for svc_name, svc in (c.get('services') or {}).items():
+    img = (svc.get('image') or '').lower()
+    if any(p in img for p in PG_IMAGES):
+        pg_svc_name = svc_name
+        print(f'[dev] Detected postgres service: {svc_name} (image={img})')
+    if any(r in img for r in REDIS_IMAGES):
+        redis_svc_name = svc_name
+        print(f'[dev] Detected redis service: {svc_name} (image={img})')
+
+# Also detect by well-known ports / environment keys if image is custom
+for svc_name, svc in (c.get('services') or {}).items():
+    env = svc.get('environment') or {}
+    env_dict = env if isinstance(env, dict) else {e.split('=')[0]: e.split('=',1)[-1] for e in env if '=' in e}
+    if 'POSTGRES_DB' in env_dict or 'POSTGRES_USER' in env_dict:
+        pg_svc_name = svc_name
+        print(f'[dev] Detected postgres service by env: {svc_name}')
+    if 'REDIS_PASSWORD' in env_dict or 'ALLOW_EMPTY_PASSWORD' in env_dict:
+        redis_svc_name = svc_name
+        print(f'[dev] Detected redis service by env: {svc_name}')
+
+def _fix_localhost(v: str) -> str:
+    """Replace 127.0.0.1 / localhost service references with compose DNS names."""
+    if not isinstance(v, str):
+        return v
+    # Postgres DSN: postgres://... or postgresql://...
+    v = re.sub(r'(postgres(?:ql)?://[^@]*@)(?:127\.0\.0\.1|localhost)(:\d+)',
+               lambda m: m.group(1) + pg_svc_name + m.group(2), v)
+    # Short @host:port form (SQLAlchemy style)
+    v = re.sub(r'@(?:127\.0\.0\.1|localhost)(:5432\b)',
+               '@' + pg_svc_name + r'\1', v)
+    # Redis
+    v = re.sub(r'(redis://[^@]*@?)(?:127\.0\.0\.1|localhost)(:\d+)',
+               lambda m: m.group(1) + redis_svc_name + m.group(2), v)
+    # Bare host=..., DATABASE_HOST=, REDIS_HOST= style
+    v = re.sub(r'^((?:DB_HOST|DATABASE_HOST|POSTGRES_HOST|PGHOST|REDIS_HOST|CACHE_HOST)\s*=\s*)(?:127\.0\.0\.1|localhost)\s*$',
+               lambda m: m.group(1) + pg_svc_name if 'REDIS' not in m.group(1) and 'CACHE' not in m.group(1)
+               else m.group(1) + redis_svc_name, v)
+    return v
+
+# ── Patch .env file if it exists (most common config vector) ─────────────────
+import shutil
+
+def _patch_env_file(path: str) -> bool:
+    if not os.path.isfile(path):
+        return False
+    with open(path) as f:
+        lines = f.readlines()
+    new_lines = []
+    changed = False
+    for line in lines:
+        stripped = line.rstrip('\n')
+        fixed = _fix_localhost(stripped)
+        new_lines.append(fixed + '\n')
+        if fixed != stripped:
+            print(f'[dev] .env patch: {stripped!r} → {fixed!r}')
+            changed = True
+    if changed:
+        shutil.copy(path, path + '.rv-bak')
+        with open(path, 'w') as f:
+            f.writelines(new_lines)
+        print(f'[dev] Patched {path}')
+    return changed
+
+# Patch standard .env locations
+for env_file in ['.env', '.env.local', '.env.production', 'config/.env']:
+    _patch_env_file(env_file)
+
 override = {'services': {}}
 host_mode_svcs = []
 
@@ -123,50 +198,54 @@ for svc_name, svc in (c.get('services') or {}).items():
 
     # Translate ./relative bind mounts → absolute host paths
     vols = svc.get('volumes') or []
-    new_vols, changed = [], False
+    new_vols, vol_changed = [], False
     for v in vols:
         if isinstance(v, str) and v.startswith('./'):
             parts = v.split(':')
             host_src = repo_host_path + parts[0][1:]  # strip leading '.'
             new_vols.append(':'.join([host_src] + parts[1:]))
-            changed = True
+            vol_changed = True
         else:
             new_vols.append(v)
-    if changed:
+    if vol_changed:
         s['volumes'] = new_vols
 
-    # For network_mode:host services: we cannot override host mode via the
-    # compose override file (Compose v2 treats null as "keep base value").
-    # Instead, we patch docker-compose.yml directly, removing host mode so
-    # those services join the project's default bridge network naturally.
-    # We write the patched compose back in place (override still handles volumes/env).
+    # For network_mode:host services: patch docker-compose.yml directly to
+    # remove host mode so they join the project's default bridge network.
     if svc.get('network_mode') == 'host':
         host_mode_svcs.append(svc_name)
-        # Fix 127.0.0.1 references in env so sibling services resolve by DNS
-        env = dict(svc.get('environment') or {})
-        changed_env = False
-        for k, v in list(env.items()):
-            if isinstance(v, str) and '127.0.0.1' in v:
-                v = re.sub(r'@127\.0\.0\.1:5432', '@postgres:5432', v)
-                v = re.sub(r'redis://127\.0\.0\.1:', 'redis://redis:', v)
-                env[k] = v
-                changed_env = True
-        if changed_env:
-            s['environment'] = env
+        # Fix 127.0.0.1 references in inline env block
+        raw_env = svc.get('environment') or {}
+        if isinstance(raw_env, list):
+            env_items = [e.split('=', 1) for e in raw_env if '=' in e]
+            env_dict = {k: v for k, v in env_items}
+        else:
+            env_dict = dict(raw_env)
+        new_env, env_changed = {}, False
+        for k, v in env_dict.items():
+            fixed = _fix_localhost(str(v) if v is not None else '')
+            new_env[k] = fixed
+            if fixed != str(v):
+                env_changed = True
+                print(f'[dev] env patch [{svc_name}] {k}: {v!r} → {fixed!r}')
+        if env_changed:
+            s['environment'] = new_env
 
     if s:
         override['services'][svc_name] = s
 
 # Remove network_mode:host from the original compose file so those services
 # join the project network. Backup the original first.
-import shutil
 if host_mode_svcs:
     shutil.copy('docker-compose.yml', 'docker-compose.yml.rv-bak')
     for svc_name in host_mode_svcs:
         del c['services'][svc_name]['network_mode']
-        # Remove extra_hosts that redirect service names to 127.0.0.1
-        # (those were needed for host-network mode but break bridge DNS)
+        # Remove extra_hosts entries pointing to 127.0.0.1
+        # (those were for host-network mode, break bridge DNS resolution)
         c['services'][svc_name].pop('extra_hosts', None)
+        # Patch inline environment in the compose YAML too
+        if svc_name in override.get('services', {}) and 'environment' in override['services'][svc_name]:
+            c['services'][svc_name]['environment'] = override['services'][svc_name]['environment']
     with open('docker-compose.yml', 'w') as fw:
         yaml.dump(c, fw, default_flow_style=False)
     print(f'[dev] Patched docker-compose.yml: removed network_mode:host from {host_mode_svcs}')
@@ -179,6 +258,7 @@ with open('/tmp/rv-recreate-svcs.txt', 'w') as f:
     f.write(' '.join(host_mode_svcs))
 
 print('[dev] docker-compose.override.yml written')
+print(f'[dev] pg_svc={pg_svc_name}  redis_svc={redis_svc_name}')
 PATCHEOF
 
     # Get the volume mountpoint so bind-mounts resolve on the HOST

@@ -214,6 +214,73 @@ class DockerManager:
         except Exception as exc:
             return f"(error fetching logs: {exc})"
 
+    def get_named_container_logs(self, name: str, tail: int = 300) -> str:
+        """Return logs for a container by name or short id."""
+        try:
+            c = self._client.containers.get(name)
+            raw = c.logs(tail=tail, timestamps=True, stream=False)
+            return raw.decode("utf-8", errors="replace")
+        except docker.errors.NotFound:
+            return f"(container '{name}' not found)"
+        except Exception as exc:
+            return f"(error fetching logs: {exc})"
+
+    def get_compose_containers_for_session(self, session_id: str) -> list[dict]:
+        """Find docker-compose containers joined by the agent for this session.
+
+        The agent container connects itself to the compose project's default
+        network during startup.  We find all non-rv networks the agent is a
+        member of and list the other containers on those networks.
+        """
+        container_name = f"rv-agent-{session_id[:8]}"
+        try:
+            agent = self._client.containers.get(container_name)
+            agent.reload()
+        except docker.errors.NotFound:
+            return []
+
+        networks = agent.attrs.get("NetworkSettings", {}).get("Networks", {})
+        result: list[dict] = []
+        seen_ids: set[str] = set()
+
+        # Skip internal rv networks
+        skip_prefixes = ("rv-net-", "rv_", "bridge", "host", "none")
+
+        for net_name, net_meta in networks.items():
+            if any(net_name.startswith(p) or net_name == p for p in skip_prefixes):
+                continue
+            net_id = net_meta.get("NetworkID", "")
+            if not net_id:
+                continue
+            try:
+                net_obj = self._client.networks.get(net_id)
+                net_obj.reload()
+            except Exception:
+                continue
+
+            for cid, cinfo in (net_obj.attrs.get("Containers") or {}).items():
+                if cid in seen_ids:
+                    continue
+                seen_ids.add(cid)
+                cname = cinfo.get("Name", "")
+                if cname == container_name:
+                    continue  # skip the agent itself
+                try:
+                    c = self._client.containers.get(cid)
+                    result.append({
+                        "id": c.id[:12],
+                        "name": c.name,
+                        "service": c.labels.get("com.docker.compose.service", c.name),
+                        "status": c.status,
+                        "compose_project": c.labels.get("com.docker.compose.project", ""),
+                        "network": net_name,
+                    })
+                except docker.errors.NotFound:
+                    pass
+
+        result.sort(key=lambda x: x["service"])
+        return result
+
     def list_managed_containers(self) -> list[dict]:
         containers = self._client.containers.list(
             filters={"label": "rv.managed=true"}

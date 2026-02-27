@@ -52,6 +52,122 @@ def sse_done() -> str:
     return "data: [DONE]\n\n"
 
 
+# ── Subprocess helpers ────────────────────────────────────────────────────────
+
+async def _shell(cmd: str, cwd: Path | None = None) -> str:
+    log.info("shell_run", cmd=cmd, cwd=str(cwd))
+    t0 = time.monotonic()
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=cwd,
+    )
+    stdout, _ = await proc.communicate()
+    elapsed = time.monotonic() - t0
+    result = stdout.decode(errors="replace").strip()
+    log.info("shell_done", cmd=cmd, elapsed_s=round(elapsed, 2),
+             rc=proc.returncode, output_len=len(result))
+    return result
+
+
+async def _run_gh_copilot(
+    message: str, cwd: Path | None = None, timeout: int = 30
+) -> AsyncGenerator[str, None]:
+    """
+    Run `gh copilot suggest` and stream output line-by-line with heartbeats.
+    Yields SSE strings. Raises on hard failure so caller can fall through.
+    """
+    cmd = ["gh", "copilot", "suggest", "-t", "shell", message]
+    log.info("gh_copilot_launch", cmd=" ".join(cmd), cwd=str(cwd), timeout=timeout)
+    t0 = time.monotonic()
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        stdin=asyncio.subprocess.DEVNULL,   # prevent hanging waiting for stdin
+        env={**os.environ, "GH_TOKEN": GITHUB_PAT, "GH_NO_UPDATE_NOTIFIER": "1",
+             "TERM": "dumb"},
+        cwd=str(cwd) if cwd else None,
+    )
+    log.info("gh_copilot_started", pid=proc.pid)
+
+    collected_stdout: list[str] = []
+    collected_stderr: list[str] = []
+    last_heartbeat = time.monotonic()
+
+    async def _read_stdout() -> None:
+        assert proc.stdout
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            decoded = line.decode(errors="replace").rstrip()
+            log.info("gh_stdout", line=decoded, elapsed_s=round(time.monotonic() - t0, 2))
+            collected_stdout.append(decoded)
+
+    async def _read_stderr() -> None:
+        assert proc.stderr
+        while True:
+            line = await proc.stderr.readline()
+            if not line:
+                break
+            decoded = line.decode(errors="replace").rstrip()
+            log.warning("gh_stderr", line=decoded, elapsed_s=round(time.monotonic() - t0, 2))
+            collected_stderr.append(decoded)
+
+    # Kick off readers
+    reader_tasks = [
+        asyncio.create_task(_read_stdout()),
+        asyncio.create_task(_read_stderr()),
+    ]
+
+    # Wait for process to finish with periodic heartbeat yields
+    deadline = t0 + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            log.error("gh_copilot_timeout", pid=proc.pid, timeout=timeout,
+                      stdout_lines=len(collected_stdout), stderr_lines=len(collected_stderr))
+            proc.kill()
+            for t in reader_tasks:
+                t.cancel()
+            raise asyncio.TimeoutError(f"gh copilot timed out after {timeout}s")
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=min(remaining, 5.0))
+            break  # process finished
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - t0
+            if time.monotonic() - last_heartbeat >= 5.0:
+                log.info("gh_copilot_waiting", elapsed_s=round(elapsed, 2),
+                         stdout_so_far=len(collected_stdout))
+                last_heartbeat = time.monotonic()
+                yield sse({"type": "status",
+                           "content": f"Querying Copilot CLI… ({int(elapsed)}s elapsed)"})
+
+    # Wait for readers to drain
+    await asyncio.gather(*reader_tasks, return_exceptions=True)
+
+    elapsed = time.monotonic() - t0
+    log.info("gh_copilot_finished", pid=proc.pid, rc=proc.returncode,
+             elapsed_s=round(elapsed, 2),
+             stdout_lines=len(collected_stdout), stderr_lines=len(collected_stderr))
+
+    if collected_stderr:
+        log.warning("gh_copilot_stderr_summary", lines=collected_stderr[-10:])
+
+    suggestion = "\n".join(collected_stdout).strip()
+    if suggestion:
+        yield sse({"type": "text", "content": suggestion})
+    else:
+        # Nothing came out - surface stderr as error message
+        err = "\n".join(collected_stderr).strip() or "(no output)"
+        log.warning("gh_copilot_empty_output", stderr=err)
+        raise RuntimeError(f"gh copilot returned no output. stderr: {err}")
+
+
 # ── Agent logic ───────────────────────────────────────────────────────────────
 
 async def run_agent(  # noqa: C901
@@ -61,13 +177,17 @@ async def run_agent(  # noqa: C901
     Drive Copilot SDK / fallback to gh copilot CLI / or a built-in planner.
     Yields SSE data lines.
     """
+    log.info("agent_start", message=message[:120], history_len=len(history),
+             repo=REPO_FULL_NAME, workspace=str(WORKSPACE))
+
     # ── 1. Thinking ────────────────────────────────────────────────────────
     yield sse({"type": "thinking", "content": "Analysing request…"})
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
 
     # ── 2. Parse intent ────────────────────────────────────────────────────
     low = message.lower()
     if any(w in low for w in ("git status", "status")):
+        log.info("agent_intent", intent="git_status")
         yield sse({"type": "tool_call", "content": "Running: git status", "tool_name": "shell"})
         out = await _shell("git status", cwd=WORKSPACE)
         yield sse({"type": "tool_result", "content": out, "tool_name": "shell"})
@@ -76,6 +196,7 @@ async def run_agent(  # noqa: C901
         return
 
     if any(w in low for w in ("git log", "log")):
+        log.info("agent_intent", intent="git_log")
         yield sse({"type": "tool_call", "content": "Running: git log --oneline -10", "tool_name": "shell"})
         out = await _shell("git log --oneline -10", cwd=WORKSPACE)
         yield sse({"type": "tool_result", "content": out, "tool_name": "shell"})
@@ -83,41 +204,43 @@ async def run_agent(  # noqa: C901
         yield sse_done()
         return
 
-    # ── 3. Try gh copilot explain / suggest (if available) ─────────────────
+    # ── 3. Try gh copilot suggest (if available) ────────────────────────────
+    yield sse({"type": "status", "content": "Querying Copilot CLI…"})
     try:
-        yield sse({"type": "status", "content": "Querying Copilot CLI…"})
-        proc = await asyncio.create_subprocess_exec(
-            "gh", "copilot", "suggest", "-t", "shell", message,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "GH_TOKEN": GITHUB_PAT},
-            cwd=str(WORKSPACE),
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        suggestion = stdout.decode().strip()
-        if suggestion:
-            yield sse({"type": "text", "content": suggestion})
-            yield sse_done()
-            return
-    except (FileNotFoundError, asyncio.TimeoutError, Exception):
-        pass  # gh CLI not available or timed out
+        log.info("agent_intent", intent="gh_copilot")
+        async for chunk in _run_gh_copilot(message, cwd=WORKSPACE, timeout=30):
+            yield chunk
+        yield sse_done()
+        return
+    except FileNotFoundError:
+        log.warning("gh_cli_not_found", detail="gh binary missing, falling through to fallback")
+    except asyncio.TimeoutError as exc:
+        log.error("gh_cli_timeout", detail=str(exc))
+        yield sse({"type": "error",
+                   "content": "Copilot CLI timed out after 30 s. Falling back to built-in planner."})
+    except Exception as exc:
+        log.error("gh_cli_error", detail=str(exc))
+        yield sse({"type": "status",
+                   "content": f"Copilot CLI unavailable ({exc}), using built-in planner."})
 
     # ── 4. Fallback: echo + run if looks like shell command ─────────────────
-    # Simple heuristic: if message starts with run/execute/do, extract command
     match = re.search(r"(?:run|execute|do|try)\s+[`']?(.+?)[`']?\s*$", message, re.I)
     if match:
         cmd = match.group(1).strip("`'\"")
+        log.info("agent_intent", intent="shell_fallback", cmd=cmd)
         yield sse({"type": "tool_call", "content": f"Running: {cmd}", "tool_name": "shell"})
         try:
             out = await asyncio.wait_for(_shell(cmd, cwd=WORKSPACE), timeout=20)
             yield sse({"type": "tool_result", "content": out, "tool_name": "shell"})
             yield sse({"type": "text", "content": f"Done.\n```\n{out}\n```"})
         except asyncio.TimeoutError:
+            log.error("shell_timeout", cmd=cmd)
             yield sse({"type": "error", "content": "Command timed out."})
         yield sse_done()
         return
 
     # ── 5. Generic response ────────────────────────────────────────────────
+    log.info("agent_intent", intent="generic_response")
     yield sse({"type": "text", "content": (
         f"I'm your Copilot agent for **{REPO_FULL_NAME}**.\n\n"
         "I can help you:\n"
@@ -127,17 +250,6 @@ async def run_agent(  # noqa: C901
         f"You said: *{message}*"
     )})
     yield sse_done()
-
-
-async def _shell(cmd: str, cwd: Path | None = None) -> str:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=cwd,
-    )
-    stdout, _ = await proc.communicate()
-    return stdout.decode(errors="replace").strip()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

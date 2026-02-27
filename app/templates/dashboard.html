@@ -369,25 +369,83 @@
 
   <!-- ── Logs Modal ────────────────────────────────────────────────────────── -->
   <dialog class="modal" :class="showLogsModal && 'modal-open'">
-    <div class="modal-box max-w-4xl w-full">
-      <div class="flex items-center gap-3 mb-3">
-        <h3 class="font-bold text-lg flex-1">Container Logs</h3>
-        <span class="badge text-xs" x-show="logsStatus"
+    <div class="modal-box" style="max-width:92vw;width:92vw;max-height:92vh;height:92vh;display:flex;flex-direction:column;">
+      <!-- Header -->
+      <div class="flex items-center gap-3 mb-3 shrink-0">
+        <h3 class="font-bold text-lg flex-1">Logs</h3>
+        <span class="badge text-xs" x-show="logsStatus && logsActiveTab === '__agent__'"
           :class="logsStatus === 'running' ? 'badge-success' : logsStatus === 'exited' ? 'badge-error' : 'badge-warning'"
           x-text="logsStatus"></span>
         <span class="loading loading-spinner loading-xs" x-show="logsLoading"></span>
       </div>
-      <pre class="bg-base-300 rounded p-3 text-xs overflow-auto h-96 whitespace-pre-wrap font-mono"
-           x-ref="logsContent" x-text="sessionLogs || '(loading...)'"
+
+      <!-- Tab bar -->
+      <div class="tabs tabs-bordered shrink-0 mb-2 flex-wrap gap-y-1">
+        <!-- Agent tab always first -->
+        <button class="tab tab-sm"
+          :class="logsActiveTab === '__agent__' ? 'tab-active' : ''"
+          @click="switchLogsTab('__agent__')">
+          Agent
+        </button>
+        <!-- Compose container tabs -->
+        <template x-for="c in composeContainers" :key="c.name">
+          <button class="tab tab-sm gap-1.5"
+            :class="logsActiveTab === c.name ? 'tab-active' : ''"
+            @click="switchLogsTab(c.name)">
+            <span class="w-1.5 h-1.5 rounded-full inline-block"
+              :class="c.status === 'running' ? 'bg-success' : 'bg-error'"></span>
+            <span x-text="c.service || c.name"></span>
+          </button>
+        </template>
+        <!-- Refresh compose container list -->
+        <button class="tab tab-sm ml-auto opacity-50 hover:opacity-100" @click="loadComposeContainers()" title="Refresh container list">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Log console -->
+      <pre class="bg-base-300 rounded p-3 text-xs overflow-auto flex-1 whitespace-pre-wrap font-mono min-h-0"
+           x-ref="logsContent"
+           x-text="sessionLogs || '(loading...)'"
            @scroll="logsPinned = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 40"
            style="direction:ltr"></pre>
-      <div class="modal-action">
-        <button @click="copyLogs()" class="btn btn-ghost btn-sm gap-1" title="Copy all logs">
+
+      <!-- Footer actions -->
+      <div class="modal-action shrink-0 mt-2 flex-wrap gap-2">
+        <label class="cursor-pointer flex items-center gap-2 text-xs mr-auto">
+          <input type="checkbox" class="checkbox checkbox-xs" x-model="logsPinned" />
+          Auto-scroll
+        </label>
+        <!-- Copy current tab -->
+        <button @click="copyLogs()" class="btn btn-ghost btn-sm gap-1" title="Copy current tab logs">
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
           </svg>
           <span x-text="logsCopied ? 'Copied!' : 'Copy'"></span>
+        </button>
+        <!-- Copy all containers (last 100 lines each) -->
+        <button @click="copyAllLogs(100)" class="btn btn-ghost btn-sm gap-1"
+          :class="copyAllLoading ? 'loading' : ''"
+          title="Fetch last 100 lines from every container and copy">
+          <svg x-show="!copyAllLoading" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          <span x-text="copyAllCopied ? 'Copied!' : 'Copy all (100)'"></span>
+        </button>
+        <!-- Copy all containers (full logs) -->
+        <button @click="copyAllLogs(500)" class="btn btn-ghost btn-sm gap-1"
+          :class="copyAllLoading ? 'loading' : ''"
+          title="Fetch full logs from every container and copy">
+          <svg x-show="!copyAllLoading" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          <span x-show="!copyAllLoading">Copy all (full)</span>
         </button>
         <button @click="fetchLogs()" class="btn btn-ghost btn-sm" :disabled="logsLoading">Refresh</button>
         <button @click="closeLogs()" class="btn btn-sm">Close</button>
@@ -445,6 +503,10 @@ function dashboard() {
     logsInterval: null,
     logsPinned: true,
     logsCopied: false,
+    logsActiveTab: '__agent__',
+    composeContainers: [],
+    copyAllLoading: false,
+    copyAllCopied: false,
     mediaRecorder: null,
     audioChunks: [],
 
@@ -557,26 +619,56 @@ function dashboard() {
       this.showLogsModal = true;
       this.sessionLogs = '';
       this.logsPinned = true;
-      await this.fetchLogs();
+      this.logsActiveTab = '__agent__';
+      await Promise.all([this.loadComposeContainers(), this.fetchLogs()]);
       if (this.logsInterval) clearInterval(this.logsInterval);
       this.logsInterval = setInterval(() => this.fetchLogs(), 3000);
+    },
+
+    async loadComposeContainers() {
+      if (!this.activeSession?.id) return;
+      try {
+        const r = await this.api(`/api/sessions/${this.activeSession.id}/compose-containers`);
+        if (r.ok) {
+          const d = await r.json();
+          this.composeContainers = d.containers || [];
+        }
+      } catch(e) { /* silent */ }
+    },
+
+    async switchLogsTab(tabName) {
+      this.logsActiveTab = tabName;
+      this.sessionLogs = '';
+      await this.fetchLogs();
     },
 
     async fetchLogs() {
       if (!this.activeSession?.id) return;
       this.logsLoading = true;
       try {
-        const r = await this.api(`/api/sessions/${this.activeSession.id}/logs?tail=300`);
-        if (r.ok) {
-          const d = await r.json();
-          this.sessionLogs = d.logs || '(no output yet)';
-          this.logsStatus = d.container_status || '';
-          if (this.logsPinned) {
-            this.$nextTick(() => {
-              const el = this.$refs.logsContent;
-              if (el) el.scrollTop = el.scrollHeight;
-            });
+        let url, r;
+        if (this.logsActiveTab === '__agent__') {
+          url = `/api/sessions/${this.activeSession.id}/logs?tail=500`;
+          r = await this.api(url);
+          if (r.ok) {
+            const d = await r.json();
+            this.sessionLogs = d.logs || '(no output yet)';
+            this.logsStatus = d.container_status || '';
           }
+        } else {
+          url = `/api/sessions/${this.activeSession.id}/compose-logs/${encodeURIComponent(this.logsActiveTab)}?tail=500`;
+          r = await this.api(url);
+          if (r.ok) {
+            const d = await r.json();
+            this.sessionLogs = d.logs || '(no output yet)';
+            this.logsStatus = '';
+          }
+        }
+        if (this.logsPinned) {
+          this.$nextTick(() => {
+            const el = this.$refs.logsContent;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
         }
       } catch(e) { this.sessionLogs = '(error loading logs)'; }
       finally { this.logsLoading = false; }
@@ -588,6 +680,39 @@ function dashboard() {
         this.logsCopied = true;
         setTimeout(() => { this.logsCopied = false; }, 2000);
       } catch(e) {}
+    },
+
+    async copyAllLogs(tail) {
+      if (!this.activeSession?.id || this.copyAllLoading) return;
+      this.copyAllLoading = true;
+      try {
+        // Gather all tabs: agent + every compose container
+        const tabs = ['__agent__', ...this.composeContainers.map(c => c.name)];
+        const parts = [];
+        for (const tab of tabs) {
+          let label, url;
+          if (tab === '__agent__') {
+            label = 'Agent';
+            url = `/api/sessions/${this.activeSession.id}/logs?tail=${tail}`;
+          } else {
+            const c = this.composeContainers.find(c => c.name === tab);
+            label = c ? (c.service || c.name) : tab;
+            url = `/api/sessions/${this.activeSession.id}/compose-logs/${encodeURIComponent(tab)}?tail=${tail}`;
+          }
+          try {
+            const r = await this.api(url);
+            if (r.ok) {
+              const d = await r.json();
+              const logs = (d.logs || '').trim();
+              parts.push(`${'='.repeat(60)}\n[${label}]\n${'='.repeat(60)}\n${logs}`);
+            }
+          } catch(e) { parts.push(`[${label}] (error: ${e})`); }
+        }
+        await navigator.clipboard.writeText(parts.join('\n\n'));
+        this.copyAllCopied = true;
+        setTimeout(() => { this.copyAllCopied = false; }, 2500);
+      } catch(e) { alert('Copy failed: ' + e); }
+      finally { this.copyAllLoading = false; }
     },
 
     closeLogs() {

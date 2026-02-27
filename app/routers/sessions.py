@@ -124,6 +124,38 @@ async def get_session_logs(
     return {"logs": logs, "container_status": status}
 
 
+@router.get("/{session_id}/compose-containers")
+async def list_compose_containers(
+    session_id: uuid.UUID = FPath(...),
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """List docker-compose containers that the agent has joined for this session."""
+    session = await crud.get_session(db, session_id)
+    if not session or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    dm = get_docker_manager()
+    containers = dm.get_compose_containers_for_session(str(session_id))
+    return {"containers": containers}
+
+
+@router.get("/{session_id}/compose-logs/{container_name:path}")
+async def get_compose_container_logs(
+    session_id: uuid.UUID = FPath(...),
+    container_name: str = FPath(...),
+    tail: int = 300,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Return stdout/stderr logs for a specific compose container by name."""
+    session = await crud.get_session(db, session_id)
+    if not session or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    dm = get_docker_manager()
+    logs = dm.get_named_container_logs(container_name, tail=tail)
+    return {"logs": logs, "container_name": container_name}
+
+
 @router.delete("/{session_id}")
 async def stop_session(
     session_id: uuid.UUID = FPath(...),
