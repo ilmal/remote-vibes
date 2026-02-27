@@ -88,7 +88,168 @@ _fallback_server() {
     python3 -m http.server "${port}" --bind 0.0.0.0
 }
 
-_try_flask() {
+_run_compose_dev() {
+    local dir="${1}"
+    local port="${2}"
+    cd "${dir}"
+
+    echo "[dev] docker-compose.yml found → preparing compose dev server"
+
+    # ── Step 1: generate override ──────────────────────────────────────────
+    # Translate relative bind-mount sources to absolute host paths
+    # (docker socket uses HOST daemon, so all paths must be host-absolute)
+    # Also convert network_mode:host services to bridge + fix 127.0.0.1 URLs
+    cat > /tmp/rv-compose-patch.py << 'PATCHEOF'
+import sys, re
+
+repo_host_path = sys.argv[1]  # absolute path on HOST to the repo directory
+
+try:
+    import yaml
+except ImportError:
+    import subprocess
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'pyyaml'],
+                   capture_output=True)
+    import yaml
+
+with open('docker-compose.yml') as f:
+    c = yaml.safe_load(f)
+
+override = {'services': {}}
+
+for svc_name, svc in (c.get('services') or {}).items():
+    s = {}
+
+    # Translate ./relative bind mounts → absolute host paths
+    vols = svc.get('volumes') or []
+    new_vols, changed = [], False
+    for v in vols:
+        if isinstance(v, str) and v.startswith('./'):
+            parts = v.split(':')
+            host_src = repo_host_path + parts[0][1:]  # strip leading '.'
+            new_vols.append(':'.join([host_src] + parts[1:]))
+            changed = True
+        else:
+            new_vols.append(v)
+    if changed:
+        s['volumes'] = new_vols
+
+    # Convert network_mode:host → bridge so services can resolve each other
+    if svc.get('network_mode') == 'host':
+        s['network_mode'] = None
+        s['extra_hosts'] = []
+        env = dict(svc.get('environment') or {})
+        changed_env = False
+        for k, v in list(env.items()):
+            if isinstance(v, str) and '127.0.0.1' in v:
+                v = re.sub(r'@127\.0\.0\.1:5432', '@postgres:5432', v)
+                v = re.sub(r'redis://127\.0\.0\.1:', 'redis://redis:', v)
+                env[k] = v
+                changed_env = True
+        if changed_env:
+            s['environment'] = env
+
+    if s:
+        override['services'][svc_name] = s
+
+with open('docker-compose.override.yml', 'w') as f:
+    yaml.dump(override, f, default_flow_style=False)
+
+print('[dev] docker-compose.override.yml written')
+PATCHEOF
+
+    # Get the volume mountpoint so bind-mounts resolve on the HOST
+    local repos_vol="${REPOS_VOLUME_NAME:-remote-vibes_repos_data}"
+    local vol_root
+    vol_root=$(docker volume inspect "${repos_vol}" --format '{{.Mountpoint}}' 2>/dev/null || true)
+
+    if [ -z "${vol_root}" ]; then
+        echo "[dev] ⚠ Cannot resolve repos volume '${repos_vol}', falling back to static server"
+        _fallback_server "${port}" "${dir}"
+        return
+    fi
+
+    local repo_host_path="${vol_root}/${REPO_NAME}"
+    echo "[dev] Repo host path: ${repo_host_path}"
+
+    python3 /tmp/rv-compose-patch.py "${repo_host_path}" || {
+        echo "[dev] ⚠ Patch failed, falling back to static server"
+        _fallback_server "${port}" "${dir}"
+        return
+    }
+
+    # ── Step 2: build + start ───────────────────────────────────────────────
+    echo "[dev] Building compose images…"
+    docker compose build 2>&1 | tail -15 || true
+
+    echo "[dev] Starting compose stack…"
+    docker compose up -d 2>&1 | tail -20 || true
+
+    # ── Step 3: detect web UI port ──────────────────────────────────────────
+    sleep 8
+    local ui_port
+    ui_port=$(docker compose ps --format '{{json .}}' 2>/dev/null | python3 -c "
+import sys, json
+SKIP = {0, 5432, 6379, 3306, 27017, 9200, 9300}
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        svc = json.loads(line)
+        for p in (svc.get('Publishers') or []):
+            pub = int(p.get('PublishedPort') or 0)
+            if pub and pub not in SKIP:
+                print(pub); sys.exit(0)
+    except: pass
+print(5173)
+" 2>/dev/null || echo "5173")
+
+    local host_gw
+    host_gw=$(ip route | awk '/default/ {print $3; exit}')
+    echo "[dev] Proxying agent :${port} → host ${host_gw}:${ui_port}"
+
+    # ── Step 4: TCP proxy DEV_PORT → UI port on host gateway ───────────────
+    cat > /tmp/rv-proxy.py << 'PROXYEOF'
+import sys, socket, threading
+
+host_gw  = sys.argv[1]
+ui_port  = int(sys.argv[2])
+listen   = int(sys.argv[3])
+
+def pipe(src, dst):
+    try:
+        while chunk := src.recv(16384):
+            dst.sendall(chunk)
+    except Exception:
+        pass
+    for s in (src, dst):
+        try: s.shutdown(socket.SHUT_RDWR)
+        except Exception: pass
+        try: s.close()
+        except Exception: pass
+
+def handle(client):
+    try:
+        server = socket.create_connection((host_gw, ui_port), timeout=30)
+        threading.Thread(target=pipe, args=(client, server), daemon=True).start()
+        threading.Thread(target=pipe, args=(server, client), daemon=True).start()
+    except Exception as e:
+        print(f'[proxy] connect {host_gw}:{ui_port} failed: {e}', flush=True)
+        client.close()
+
+srv = socket.socket()
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(('0.0.0.0', listen))
+srv.listen(128)
+print(f'[dev] Compose proxy :{listen} → {host_gw}:{ui_port} ready', flush=True)
+while True:
+    c, _ = srv.accept()
+    threading.Thread(target=handle, args=(c,), daemon=True).start()
+PROXYEOF
+    exec python3 /tmp/rv-proxy.py "${host_gw}" "${ui_port}" "${port}"
+}
+
+
     local port="${1}"
     local dir="${2}"
     # Try common Flask entry patterns (factory or plain app)
@@ -117,6 +278,12 @@ _start_dev_server() {
     sleep 5
 
     echo "[dev] Detecting project type in ${dir}..."
+
+    # Docker Compose project takes highest priority
+    if [ -f "${dir}/docker-compose.yml" ] || [ -f "${dir}/docker-compose.yaml" ]; then
+        _run_compose_dev "${dir}" "${port}"
+        return
+    fi
 
     if [ -f "${dir}/package.json" ]; then
         cd "${dir}"

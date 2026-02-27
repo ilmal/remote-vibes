@@ -101,6 +101,7 @@ class DockerManager:
             "SESSION_ID": session_id,
             "BRANCH": branch,
             "DEV_SERVER_PORT": "5000",  # internal port – mapped to dev_server_port on host
+            "REPOS_VOLUME_NAME": settings.repos_volume,  # needed by entrypoint to resolve bind-mount paths
         }
         if cloudflare_token:
             env["CLOUDFLARE_TUNNEL_TOKEN"] = cloudflare_token
@@ -115,6 +116,10 @@ class DockerManager:
             volumes={
                 settings.repos_volume: {
                     "bind": "/workspace",
+                    "mode": "rw",
+                },
+                "/var/run/docker.sock": {
+                    "bind": "/var/run/docker.sock",
                     "mode": "rw",
                 },
             },
