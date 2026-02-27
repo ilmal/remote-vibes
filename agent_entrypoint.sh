@@ -164,6 +164,9 @@ if host_mode_svcs:
     shutil.copy('docker-compose.yml', 'docker-compose.yml.rv-bak')
     for svc_name in host_mode_svcs:
         del c['services'][svc_name]['network_mode']
+        # Remove extra_hosts that redirect service names to 127.0.0.1
+        # (those were needed for host-network mode but break bridge DNS)
+        c['services'][svc_name].pop('extra_hosts', None)
     with open('docker-compose.yml', 'w') as fw:
         yaml.dump(c, fw, default_flow_style=False)
     print(f'[dev] Patched docker-compose.yml: removed network_mode:host from {host_mode_svcs}')
