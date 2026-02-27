@@ -6,8 +6,8 @@ set -euo pipefail
 : "${REPO_NAME:?REPO_NAME is required}"
 : "${SESSION_ID:?SESSION_ID is required}"
 
-# /workspace is pre-created by main-app and mounted as the repo's own directory
-WORKSPACE_DIR="/workspace"
+# /workspace is the shared repos volume; create repo-specific subdir inside it
+WORKSPACE_DIR="/workspace/${REPO_NAME}"
 mkdir -p "${WORKSPACE_DIR}"
 
 echo "[entrypoint] Configuring git identity..."

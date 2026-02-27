@@ -92,18 +92,6 @@ class DockerManager:
 
         repos_dir = Path(settings.repos_dir)
         repos_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            repos_dir.chmod(0o777)
-        except PermissionError:
-            pass
-
-        # Pre-create repo-specific dir so non-root agent user can write to it
-        workspace_dir = repos_dir / repo_name
-        workspace_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            workspace_dir.chmod(0o777)
-        except PermissionError:
-            pass
 
         env = {
             "GITHUB_PAT": github_pat,
@@ -124,7 +112,7 @@ class DockerManager:
             user="root",
             environment=env,
             volumes={
-                str(workspace_dir): {
+                str(repos_dir): {
                     "bind": "/workspace",
                     "mode": "rw",
                 },

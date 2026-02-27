@@ -48,6 +48,9 @@ async def lifespan(app: FastAPI):
     # Pre-load whisper model in background (non-blocking)
     asyncio.create_task(_preload_whisper())
 
+    # Mark any sessions whose containers are gone as "error"
+    asyncio.create_task(_cleanup_stale_sessions())
+
     yield
     log.info("shutdown")
 
@@ -89,6 +92,38 @@ async def _ensure_admin():
                 pass  # already set up
             except Exception as exc:
                 log.error("admin_create_failed", error=str(exc))
+
+
+async def _cleanup_stale_sessions():
+    """On startup, mark sessions whose containers no longer exist as 'error'."""
+    import asyncio
+    await asyncio.sleep(2)  # let the DB settle
+    try:
+        from app.database import async_session_factory
+        from sqlalchemy import select, update
+        from app.models.session import AgentSession
+        from app.services.docker_manager import get_docker_manager
+        import docker.errors
+
+        dm = get_docker_manager()
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(AgentSession).where(AgentSession.status == "running")
+            )
+            running = result.scalars().all()
+            cleaned = 0
+            for sess in running:
+                if not sess.container_id:
+                    continue
+                status = dm.get_container_status(sess.container_id)
+                if status in ("not_found", "exited", "dead"):
+                    sess.status = "error"
+                    cleaned += 1
+            if cleaned:
+                await db.commit()
+                log.info("stale_sessions_cleaned", count=cleaned)
+    except Exception as exc:
+        log.warning("stale_session_cleanup_failed", error=str(exc))
 
 
 # ── App factory ───────────────────────────────────────────────────────────────

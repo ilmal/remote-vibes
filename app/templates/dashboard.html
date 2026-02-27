@@ -189,7 +189,9 @@
 
         <!-- Session header bar -->
         <div class="flex items-center gap-3 px-4 py-2 bg-base-100 border-b border-base-300">
-          <span class="badge badge-success badge-sm">running</span>
+        <span class="badge badge-sm"
+          :class="activeSession?.status === 'running' ? 'badge-success' : activeSession?.status === 'error' ? 'badge-error' : 'badge-warning'"
+          x-text="activeSession?.status || 'unknown'"></span>
           <span class="font-medium text-sm" x-text="activeSession?.repo_name"></span>
           <span class="text-xs text-base-content/40" x-text="activeSession?.branch"></span>
           <div class="flex-1"></div>
@@ -444,6 +446,14 @@ function dashboard() {
 
     async init() {
       await Promise.all([this.loadRepos(), this.loadSessions()]);
+      // Restore selected repo / session from URL
+      const repoParam = new URLSearchParams(location.search).get('repo');
+      if (repoParam) {
+        const sess = this.activeSessions.find(s => s.repo_full_name === repoParam);
+        if (sess) { this.switchToSession(sess); return; }
+        const repo = this.repos.find(r => r.full_name === repoParam);
+        if (repo) this.selectRepo(repo);
+      }
     },
 
     token() {
@@ -475,13 +485,14 @@ function dashboard() {
         const res = await this.api('/api/sessions');
         if (!res.ok) return;
         const all = await res.json();
-        this.activeSessions = all.filter(s => s.status === 'running');
+        this.activeSessions = all.filter(s => s.status === 'running' || s.status === 'error');
       } catch(e) {}
     },
 
     selectRepo(repo) {
       this.selectedRepo = repo;
       this.sidebarOpen = false;
+      history.replaceState(null, '', '?repo=' + encodeURIComponent(repo.full_name));
       // Check if there's already a session for this repo
       const existing = this.activeSessions.find(s => s.repo_full_name === repo.full_name);
       if (existing) this.switchToSession(existing);
@@ -491,6 +502,7 @@ function dashboard() {
     switchToSession(sess) {
       this.activeSession = sess;
       this.messages = [];
+      history.replaceState(null, '', '?repo=' + encodeURIComponent(sess.repo_full_name));
       this.selectedRepo = { name: sess.repo_name, full_name: sess.repo_full_name,
                             description: '', default_branch: sess.branch, language: '', private: false };
     },

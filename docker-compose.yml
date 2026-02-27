@@ -46,9 +46,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_123}@postgres:5432/${POSTGRES_DB:-copilot_agent}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_change_me}@redis:6379/0
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--reload", "--reload-dir", "/app/app", "--log-level", "info"]
     ports:
       - "8001:8000"
     volumes:
+      - ./app:/app/app                              # live source reload
+      - ./alembic:/app/alembic                      # migration files
       - /var/run/docker.sock:/var/run/docker.sock   # for dynamic container management
       - whisper_models:/app/whisper_models            # persistent model cache
       - repos_data:/app/repos                         # cloned repos
