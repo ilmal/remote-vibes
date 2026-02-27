@@ -84,6 +84,7 @@ class DockerManager:
             self._client.networks.create(
                 network_name,
                 driver="bridge",
+                options={"com.docker.network.driver.mtu": "1260"},
                 labels={"rv.session_id": session_id},
             )
         except docker.errors.APIError as e:

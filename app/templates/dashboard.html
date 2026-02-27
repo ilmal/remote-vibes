@@ -378,8 +378,17 @@
         <span class="loading loading-spinner loading-xs" x-show="logsLoading"></span>
       </div>
       <pre class="bg-base-300 rounded p-3 text-xs overflow-auto h-96 whitespace-pre-wrap font-mono"
-           x-ref="logsContent" x-text="sessionLogs || '(loading...)'" style="direction:ltr"></pre>
+           x-ref="logsContent" x-text="sessionLogs || '(loading...)'"
+           @scroll="logsPinned = $el.scrollHeight - $el.scrollTop - $el.clientHeight < 40"
+           style="direction:ltr"></pre>
       <div class="modal-action">
+        <button @click="copyLogs()" class="btn btn-ghost btn-sm gap-1" title="Copy all logs">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          <span x-text="logsCopied ? 'Copied!' : 'Copy'"></span>
+        </button>
         <button @click="fetchLogs()" class="btn btn-ghost btn-sm" :disabled="logsLoading">Refresh</button>
         <button @click="closeLogs()" class="btn btn-sm">Close</button>
       </div>
@@ -434,6 +443,8 @@ function dashboard() {
     logsStatus: '',
     logsLoading: false,
     logsInterval: null,
+    logsPinned: true,
+    logsCopied: false,
     mediaRecorder: null,
     audioChunks: [],
 
@@ -545,6 +556,7 @@ function dashboard() {
     async openLogs() {
       this.showLogsModal = true;
       this.sessionLogs = '';
+      this.logsPinned = true;
       await this.fetchLogs();
       if (this.logsInterval) clearInterval(this.logsInterval);
       this.logsInterval = setInterval(() => this.fetchLogs(), 3000);
@@ -559,13 +571,23 @@ function dashboard() {
           const d = await r.json();
           this.sessionLogs = d.logs || '(no output yet)';
           this.logsStatus = d.container_status || '';
-          this.$nextTick(() => {
-            const el = this.$refs.logsContent;
-            if (el) el.scrollTop = el.scrollHeight;
-          });
+          if (this.logsPinned) {
+            this.$nextTick(() => {
+              const el = this.$refs.logsContent;
+              if (el) el.scrollTop = el.scrollHeight;
+            });
+          }
         }
       } catch(e) { this.sessionLogs = '(error loading logs)'; }
       finally { this.logsLoading = false; }
+    },
+
+    async copyLogs() {
+      try {
+        await navigator.clipboard.writeText(this.sessionLogs);
+        this.logsCopied = true;
+        setTimeout(() => { this.logsCopied = false; }, 2000);
+      } catch(e) {}
     },
 
     closeLogs() {
