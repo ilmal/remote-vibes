@@ -281,6 +281,32 @@ class DockerManager:
         result.sort(key=lambda x: x["service"])
         return result
 
+    def restart_compose_service(self, session_id: str, service_name: str) -> str:
+        """Pull latest image and force-recreate a compose service via agent exec."""
+        agent_name = f"rv-agent-{session_id[:8]}"
+        try:
+            agent = self._client.containers.get(agent_name)
+            agent.reload()
+        except docker.errors.NotFound:
+            raise RuntimeError(f"Agent container '{agent_name}' not found")
+
+        env_list = agent.attrs.get("Config", {}).get("Env") or []
+        env_dict = {e.split("=", 1)[0]: e.split("=", 1)[1] for e in env_list if "=" in e}
+        repo_name = env_dict.get("REPO_NAME", "")
+        workspace = f"/workspace/{repo_name}" if repo_name else "/workspace"
+
+        cmd = (
+            f"cd {workspace} && "
+            f"docker compose pull {service_name} 2>&1 | tail -30 && "
+            f"docker compose up -d --no-build --force-recreate {service_name} 2>&1 | tail -20"
+        )
+        log.info("compose_restart", agent=agent_name, service=service_name)
+        result = agent.exec_run(["sh", "-c", cmd], demux=False, stream=False)
+        output = (result.output or b"").decode("utf-8", errors="replace")
+        log.info("compose_restart_done", agent=agent_name, service=service_name,
+                 exit_code=result.exit_code, output_len=len(output))
+        return output
+
     def list_managed_containers(self) -> list[dict]:
         containers = self._client.containers.list(
             filters={"label": "rv.managed=true"}

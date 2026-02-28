@@ -156,6 +156,28 @@ async def get_compose_container_logs(
     return {"logs": logs, "container_name": container_name}
 
 
+@router.post("/{session_id}/compose-restart/{service_name:path}")
+async def restart_compose_service(
+    session_id: uuid.UUID = FPath(...),
+    service_name: str = FPath(...),
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Pull latest image and force-recreate a compose service via the agent container."""
+    import asyncio
+    session = await crud.get_session(db, session_id)
+    if not session or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    dm = get_docker_manager()
+    try:
+        output = await asyncio.get_event_loop().run_in_executor(
+            None, dm.restart_compose_service, str(session_id), service_name
+        )
+        return {"output": output, "service": service_name}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.delete("/{session_id}")
 async def stop_session(
     session_id: uuid.UUID = FPath(...),
