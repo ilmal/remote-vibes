@@ -2,9 +2,11 @@
 <html lang="en" data-theme="night" class="h-full">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#1a1a2e" />
   <title>{% block title %}Remote Vibes{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>" />
 
@@ -33,6 +35,13 @@
     /* Smooth transitions */
     * { transition-property: color, background-color, border-color;
         transition-duration: 150ms; }
+
+    /* Modal boxes must never fade-in from transparent */
+    .modal-box {
+      background-color: oklch(var(--b1)) !important;
+      transition: none !important;
+    }
+    dialog.modal { background: transparent !important; }
 
     /* Chat bubble animation */
     @keyframes fadeUp {
