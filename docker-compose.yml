@@ -58,6 +58,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock   # for dynamic container management
       - whisper_models:/app/whisper_models            # persistent model cache
       - repos_data:/app/repos                         # cloned repos
+      - ./cloudflared:/app/cloudflared               # shared with cloudflared container for config
     networks:
       - main
     depends_on:
@@ -71,6 +72,23 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+
+  # ── Cloudflare Named Tunnel (optional – enables automatic *.domain subdomains) ──
+  # Set CF_TUNNEL_ID and CF_TUNNEL_DOMAIN in .env and place your tunnel
+  # credentials JSON at ./cloudflared/creds.json to activate.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: rv_cloudflared
+    restart: on-failure:5
+    command: tunnel --config /etc/cloudflared/config.yaml --no-autoupdate run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - main
+    depends_on:
+      - main-app
 
 volumes:
   postgres_data:

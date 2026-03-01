@@ -1,0 +1,13 @@
+# This file is AUTO-MANAGED by Remote Vibes (tunnel_manager.py).
+# It is rewritten whenever a session starts or stops.
+# Manual edits will be overwritten.
+#
+# To enable: set CF_TUNNEL_ID and CF_TUNNEL_DOMAIN in .env,
+# then place your tunnel credentials at ./cloudflared/creds.json
+# (run: cloudflared tunnel create remote-vibes)
+#
+# See cloudflared/SETUP.md for full instructions.
+
+# Placeholder – will be replaced by tunnel_manager when CF_TUNNEL_ID is set.
+ingress:
+  - service: http_status:404

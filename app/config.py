@@ -38,7 +38,11 @@ class Settings(BaseSettings):
     github_pat: str = Field(default="", description="GitHub Personal Access Token")
 
     # ── Cloudflare ────────────────────────────────────────────────────────────
+    # legacy per-session quick-tunnel token (optional)
     cloudflare_tunnel_token: str = ""
+    # named tunnel (for automatic subdomain routing)
+    cf_tunnel_id: str = Field(default="", description="Cloudflare named tunnel UUID")
+    cf_tunnel_domain: str = Field(default="", description="Root domain e.g. remote.ilmal.se")
 
     # ── Whisper / Voice ───────────────────────────────────────────────────────
     whisper_model: str = "distil-large-v3"

@@ -18,15 +18,37 @@ log = structlog.get_logger(__name__)
 settings = get_settings()
 
 
-def _find_free_port(start: int = 9000, end: int = 9999) -> int:
+def _get_docker_used_ports() -> set[int]:
+    """Return all host ports currently published by any running Docker container."""
+    used: set[int] = set()
+    try:
+        client = docker.from_env()
+        for c in client.containers.list():
+            for bindings in (c.ports or {}).values():
+                if bindings:
+                    for b in bindings:
+                        if b and b.get("HostPort"):
+                            used.add(int(b["HostPort"]))
+    except Exception:
+        pass
+    return used
+
+
+def _find_free_port(start: int = 30000, end: int = 40000,
+                    exclude: "set[int] | None" = None) -> int:
+    """Find a free host port, avoiding OS-bound and Docker-published ports."""
+    docker_used = _get_docker_used_ports()
+    skip = (exclude or set()) | docker_used
     for port in range(start, end):
+        if port in skip:
+            continue
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
             try:
                 s.bind(("0.0.0.0", port))
                 return port
             except OSError:
                 continue
-    raise RuntimeError("No free ports available in range")
+    raise RuntimeError(f"No free ports available in range {start}–{end}")
 
 
 class DockerManager:
@@ -72,9 +94,9 @@ class DockerManager:
         cloudflare_token: str,
         branch: str,
     ) -> dict:
-        code_server_port = _find_free_port(start=settings.agent_base_port)
-        agent_api_port = _find_free_port(start=code_server_port + 1)
-        dev_server_port = _find_free_port(start=agent_api_port + 1)
+        code_server_port = _find_free_port(start=30000, end=40000)
+        agent_api_port   = _find_free_port(start=30000, end=40000, exclude={code_server_port})
+        dev_server_port  = _find_free_port(start=30000, end=40000, exclude={code_server_port, agent_api_port})
 
         container_name = f"rv-agent-{session_id[:8]}"
         network_name = f"rv-net-{session_id[:8]}"

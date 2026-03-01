@@ -16,6 +16,7 @@ from app.dependencies import get_db
 from app.models.user import User
 from app.schemas.session import AgentSessionCreate, AgentSessionRead, AgentSessionUpdate
 from app.services.docker_manager import get_docker_manager
+from app.services.tunnel_manager import get_tunnel_manager
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 settings = get_settings()
@@ -67,6 +68,26 @@ async def start_session(
             agent_api_port=container_info["agent_api_port"],
             dev_server_port=container_info["dev_server_port"],
         )
+
+        # Register with Cloudflare named tunnel (if configured)
+        import asyncio
+        tm = get_tunnel_manager()
+        if tm:
+            try:
+                tunnel_urls = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    tm.register_session,
+                    str(session.id),
+                    body.repo_name,
+                    container_info["code_server_port"],
+                    container_info["dev_server_port"],
+                )
+                update.tunnel_url = tunnel_urls.get("app_url")
+                update.tunnel_active = True
+            except Exception as exc:
+                import structlog
+                structlog.get_logger().warning("tunnel_register_failed", error=str(exc))
+
         session = await crud.update_session(db, session, update)
     except Exception as exc:
         await crud.update_session(db, session, AgentSessionUpdate(status="error"))
@@ -193,9 +214,20 @@ async def stop_session(
         try:
             await dm.stop_container(session.container_id)
         except Exception as exc:
-            # Log but don't fail – still mark stopped
             import structlog
             structlog.get_logger().warning("stop_container_error", error=str(exc))
+
+    # Unregister from Cloudflare tunnel
+    import asyncio
+    tm = get_tunnel_manager()
+    if tm:
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, tm.unregister_session, str(session_id)
+            )
+        except Exception as exc:
+            import structlog
+            structlog.get_logger().warning("tunnel_unregister_failed", error=str(exc))
 
     await crud.stop_session(db, session)
     return Response(status_code=204)
